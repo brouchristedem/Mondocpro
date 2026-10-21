@@ -4,6 +4,10 @@ import { DEFAULTS, PRESETS, type PresetKey, type Settings, type Cover } from './
 import { SAMPLE } from './sample'
 
 const Preview = lazy(() => import('./Preview'))
+const Modal = lazy(() => import('./Modal'))
+type Acc = typeof import('./account')
+const HAS_BACKEND = !!import.meta.env.VITE_FIREBASE_API_KEY
+const newId = () => crypto.randomUUID()
 const toBlob: typeof import('./lib/build').toBlob = (...a) => import('./lib/build').then(m => m.toBlob(...a))
 
 type Tab = 'texte' | 'garde' | 'reglages' | 'apercu'
@@ -11,11 +15,11 @@ const TABS: [Tab, string][] = [['texte', 'Texte'], ['garde', 'Page de garde'], [
 const KEY = 'mondocpro:v1'
 const PDF_URL = import.meta.env.VITE_PDF_URL as string | undefined
 
-function load(): { text: string; s: Settings; preset: PresetKey } {
+function load(): { text: string; s: Settings; preset: PresetKey; docId: string } {
   try {
     const d = JSON.parse(localStorage.getItem(KEY) || '')
-    return { text: d.text, s: { ...DEFAULTS, ...d.s, cover: { ...DEFAULTS.cover, ...d.s.cover } }, preset: d.preset }
-  } catch { return { text: SAMPLE, s: DEFAULTS, preset: 'memoire' } }
+    return { text: d.text, s: { ...DEFAULTS, ...d.s, cover: { ...DEFAULTS.cover, ...d.s.cover } }, preset: d.preset, docId: d.docId || newId() }
+  } catch { return { text: SAMPLE, s: DEFAULTS, preset: 'memoire', docId: newId() } }
 }
 
 const Logo = () => (
@@ -43,18 +47,35 @@ export default function App() {
   const [blob, setBlob] = useState<Blob | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [docId, setDocId] = useState(init.docId)
+  const [acc, setAcc] = useState<Acc | null>(null)
+  const [account, setAccount] = useState<import('./account').Account | null>(null)
+  const [modal, setModal] = useState<null | 'login' | 'pay'>(null)
+  const [pending, setPending] = useState<boolean | null>(null)
 
   const set = (p: Partial<Settings>) => setS(v => ({ ...v, ...p }))
   const setCover = (p: Partial<Cover>) => setS(v => ({ ...v, cover: { ...v.cover, ...p } }))
   const blocks = useMemo(() => parse(text), [text])
 
   useEffect(() => {
+    if (!HAS_BACKEND) return
+    let stop = () => {}, alive = true
+    import('./account').then(async m => {
+      if (!alive) return
+      setAcc(m)
+      await m.finishLink().catch(() => {})
+      stop = m.watch(setAccount)
+    })
+    return () => { alive = false; stop() }
+  }, [])
+
+  useEffect(() => {
     const t = setTimeout(() => {
       toBlob(blocks, s, true).then(b => { setBlob(b); setError('') }).catch(e => setError(String(e.message || e)))
-      try { localStorage.setItem(KEY, JSON.stringify({ text, s, preset })) } catch { /* quota */ }
+      try { localStorage.setItem(KEY, JSON.stringify({ text, s, preset, docId })) } catch { /* quota */ }
     }, 400)
     return () => clearTimeout(t)
-  }, [blocks, s, text, preset])
+  }, [blocks, s, text, preset, docId])
 
   const pickPreset = (k: PresetKey) => {
     setPreset(k)
@@ -69,6 +90,15 @@ export default function App() {
     setTimeout(() => URL.revokeObjectURL(a.href), 5000)
   }
   const download = async (pdf: boolean) => {
+    setError('')
+    if (HAS_BACKEND) {
+      if (!acc || !account) { setPending(pdf); setModal('login'); return }
+      if (!account.paid) {
+        const g = await acc.claim('download', { docId }).catch(() => ({ status: 0, error: '' }))
+        if (g.status === 402) { setPending(pdf); setModal('pay'); return }
+        if (g.status !== 200) { setError('Vérification impossible, réessaie dans un instant.'); return }
+      }
+    }
     setBusy(true)
     try {
       const docx = await toBlob(blocks, s, false)
@@ -81,6 +111,7 @@ export default function App() {
     } catch (e) { setError(String((e as Error).message)) }
     setBusy(false)
   }
+  const resume = () => { const p = pending; setModal(null); setPending(null); if (p !== null) setTimeout(() => download(p), 0) }
 
   const onLogo = (f?: File) => {
     if (!f) return
@@ -101,7 +132,9 @@ export default function App() {
     <>
       <header className="nav">
         <a className="brand" href="#top"><Logo /><span>mondocpro</span></a>
-        <a className="btn small" href="#atelier">Essayer gratuitement</a>
+        {account
+          ? <span className="who">{account.paid && <b>À vie</b>}<span>{account.email}</span><button className="link" onClick={() => acc?.logout()}>Déconnexion</button></span>
+          : <a className="btn small" href="#atelier">Essayer gratuitement</a>}
       </header>
 
       <section className="hero" id="top">
@@ -132,7 +165,7 @@ export default function App() {
                 Titres : « CHAPITRE 1 », « I. », « A. », « 1.1 » sont reconnus, ou écris <code># Titre</code>, <code>## Sous-titre</code>.
                 Tableau : copie-le depuis Word ou Excel et colle-le ; mets une ligne « Tableau : titre » juste avant pour la légende.
               </p>
-              <div className="row"><button className="link" onClick={() => setText(SAMPLE)}>Remettre l’exemple</button><button className="link" onClick={() => setText('')}>Tout effacer</button></div>
+              <div className="row"><button className="link" onClick={() => setText(SAMPLE)}>Remettre l’exemple</button><button className="link" onClick={() => { setText(''); setDocId(newId()); setCover({ title: '' }) }}>Nouveau document</button></div>
             </>
           )}
 
@@ -219,6 +252,7 @@ export default function App() {
         <details><summary>Combien ça coûte ?</summary><p>Le premier document est gratuit. Ensuite, 1 000 F payés une seule fois donnent l’accès à vie.</p></details>
         <details><summary>Je peux modifier le fichier après ?</summary><p>Oui : c’est un vrai fichier Word avec de vrais styles de titres, le sommaire se met à jour tout seul.</p></details>
       </section>
+      {modal && acc && <Suspense fallback={null}><Modal kind={modal} acc={acc} onClose={() => { setModal(null); setPending(null) }} onDone={resume} /></Suspense>}
       <footer className="foot">mondocpro · fait en Côte d’Ivoire</footer>
     </>
   )
