@@ -11,6 +11,6 @@ Texte collé → document Word (et PDF) prêt à rendre : page de garde, sommair
 
 1. Firebase : créer un projet dédié, activer Authentication (Google + « Lien envoyé par e-mail »), créer Firestore, publier `firestore.rules`, ajouter le domaine du site dans Authentication > Paramètres > Domaines autorisés.
 2. Vercel : importer ce dépôt, renseigner les variables de `.env.example`.
-3. Sans les variables `VITE_FIREBASE_*`, le site fonctionne sans compte ni limite (utile en local seulement).
+3. La config Firebase publique est dans `.env` (projet `mondoc-pro`). Si on la retire, le site fonctionne sans compte ni limite (utile en local seulement).
 
 Local : `npm install`, `npm run dev`, et `python3 server/convert.py` pour tester le PDF.
