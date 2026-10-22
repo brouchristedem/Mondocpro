@@ -61,7 +61,7 @@ export function buildDocument(blocks: Block[], s: Settings, nums?: PageNumbers):
     const cell = (text: string, ci: number, head: boolean) => new TableCell({
       width: { size: it.colW[ci], type: WidthType.DXA },
       verticalAlign: VerticalAlign.CENTER,
-      shading: head ? { fill: 'E6ECFA', type: 'clear', color: 'auto' } : undefined,
+      
       margins: { top: 60, bottom: 60, left: 90, right: 90 },
       children: [new Paragraph({ style: 'TableText', alignment: head ? AlignmentType.CENTER : AlignmentType.LEFT, children: runs(text, { size: half(it.size), bold: head }) })],
     })

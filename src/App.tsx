@@ -1,3 +1,4 @@
+import { extractCover } from './lib/cover'
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { parse } from './lib/parse'
 import type { Layout } from './lib/layout'
@@ -61,7 +62,10 @@ export default function App() {
 
   const set = (p: Partial<Settings>) => setS(v => ({ ...v, ...p }))
   const setCover = (p: Partial<Cover>) => setS(v => ({ ...v, cover: { ...v.cover, ...p } }))
-  const blocks = useMemo(() => parse(text), [text])
+  const meta = useMemo(() => extractCover(text), [text])
+  const blocks = useMemo(() => parse(meta.body), [meta])
+  const found = meta.cover
+  const sEff = useMemo<Settings>(() => ({ ...s, cover: { ...s.cover, ...found } }), [s, found])
 
   useEffect(() => {
     if (!HAS_BACKEND) return
@@ -77,11 +81,11 @@ export default function App() {
 
   useEffect(() => {
     const t = setTimeout(() => {
-      makeLayout(blocks, s).then(l => { setLayout(l); setError('') }).catch(e => setError(String(e.message || e)))
+      makeLayout(blocks, sEff).then(l => { setLayout(l); setError('') }).catch(e => setError(String(e.message || e)))
       try { localStorage.setItem(KEY, JSON.stringify({ text, s, preset, docId })) } catch { /* quota */ }
     }, 400)
     return () => clearTimeout(t)
-  }, [blocks, s, text, preset, docId])
+  }, [blocks, s, sEff, text, preset, docId])
 
   const pickPreset = (k: PresetKey) => {
     setPreset(k)
@@ -91,7 +95,7 @@ export default function App() {
   const save = (b: Blob, ext: string) => {
     const a = document.createElement('a')
     a.href = URL.createObjectURL(b)
-    a.download = `${(s.cover.title || 'document').replace(/[^\p{L}\p{N}]+/gu, '-').slice(0, 50)}.${ext}`
+    a.download = `${(sEff.cover.title || 'document').replace(/[^\p{L}\p{N}]+/gu, '-').slice(0, 50)}.${ext}`
     a.click()
     setTimeout(() => URL.revokeObjectURL(a.href), 5000)
   }
@@ -107,7 +111,7 @@ export default function App() {
     }
     setBusy(true)
     try {
-      const docx = await makeDocx(blocks, s)
+      const docx = await makeDocx(blocks, sEff)
       if (!pdf) save(docx, 'docx')
       else {
         const r = await fetch(PDF_URL!, { method: 'POST', body: docx })
@@ -180,12 +184,13 @@ export default function App() {
               <Check label="Ajouter une page de garde" checked={s.cover.enabled} onChange={v => setCover({ enabled: v })} />
               {s.cover.enabled && (
                 <>
-                  <Field label="École / université"><input value={s.cover.school} onChange={e => setCover({ school: e.target.value })} placeholder="Institut Universitaire d’Abidjan" /></Field>
-                  <Field label="Type de document"><input value={s.cover.kind} onChange={e => setCover({ kind: e.target.value })} placeholder="MÉMOIRE DE FIN D’ÉTUDES" /></Field>
-                  <Field label="Thème / titre"><textarea rows={3} value={s.cover.title} onChange={e => setCover({ title: e.target.value })} placeholder="Analyse du corridor Abidjan-Ouagadougou" /></Field>
-                  <Field label="Présenté par"><input value={s.cover.author} onChange={e => setCover({ author: e.target.value })} /></Field>
-                  <Field label="Encadreur"><input value={s.cover.supervisor} onChange={e => setCover({ supervisor: e.target.value })} /></Field>
-                  <Field label="Année académique"><input value={s.cover.year} onChange={e => setCover({ year: e.target.value })} placeholder="2025-2026" /></Field>
+                  {Object.keys(found).length > 0 && <p className="note">Page de garde lue dans ton texte : les champs détectés se remplissent tout seuls (non modifiables ici ; modifie-les dans ton texte).</p>}
+                  <Field label="École / université"><input value={sEff.cover.school} readOnly={!!found.school} onChange={e => setCover({ school: e.target.value })} placeholder="Institut Universitaire d’Abidjan" /></Field>
+                  <Field label="Type de document"><input value={sEff.cover.kind} readOnly={!!found.kind} onChange={e => setCover({ kind: e.target.value })} placeholder="MÉMOIRE DE FIN D’ÉTUDES" /></Field>
+                  <Field label="Thème / titre"><textarea rows={3} value={sEff.cover.title} readOnly={!!found.title} onChange={e => setCover({ title: e.target.value })} placeholder="Analyse du corridor Abidjan-Ouagadougou" /></Field>
+                  <Field label="Présenté par"><input value={sEff.cover.author} readOnly={!!found.author} onChange={e => setCover({ author: e.target.value })} /></Field>
+                  <Field label="Encadreur"><input value={sEff.cover.supervisor} readOnly={!!found.supervisor} onChange={e => setCover({ supervisor: e.target.value })} /></Field>
+                  <Field label="Année académique"><input value={sEff.cover.year} readOnly={!!found.year} onChange={e => setCover({ year: e.target.value })} placeholder="2025-2026" /></Field>
                   <Field label="Logo de l’école (PNG ou JPG)">
                     <input type="file" accept="image/png,image/jpeg" onChange={e => onLogo(e.target.files?.[0])} />
                     {s.cover.logo && <button className="link" onClick={() => setCover({ logo: undefined })}>Retirer le logo</button>}

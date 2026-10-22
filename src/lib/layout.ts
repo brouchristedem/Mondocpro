@@ -146,7 +146,7 @@ export async function layoutDocument(blocks: Block[], s: Settings): Promise<Layo
     const W = it.colW.reduce((a, x) => a + x, 0)
     const open = `<table style="border-collapse:collapse;table-layout:fixed;width:${pt(W)}pt;">${colgroup}<tbody>`
     const rows = it.rows.map((r, ri) => `<tr>${r.map(t =>
-      `<td style="border:0.5pt solid #000;padding:3pt 4.5pt;vertical-align:middle;${ri === 0 ? 'background:#E6ECFA;' : ''}">` +
+      `<td style="border:0.5pt solid #000;padding:3pt 4.5pt;vertical-align:middle;">` +
       `<div style="${base(it.size, lh, `text-align:${ri === 0 ? 'center' : 'left'};font-weight:${ri === 0 ? 700 : 400};overflow-wrap:anywhere;`)}">${inline(t)}</div></td>`).join('')}</tr>`)
     const d = measureBlock(pt(W), `${open}${rows.join('')}</tbody></table>`)
     const rowH = Array.from(d.querySelectorAll('tr')).map(tr => tr.getBoundingClientRect().height / PX - 0.25) // Chrome arrondit la bordure à 1px, Word/LO gardent 0,5 pt
