@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { handle, type Db } from './_logic'
+import { handle, type Db } from './_logic.js'
 
 // Faux Firestore en mémoire : mêmes règles que le vrai (toutes les lectures avant les écritures)
 function fake(): Db & { store: Map<string, Record<string, unknown>> } {
