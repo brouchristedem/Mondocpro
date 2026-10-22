@@ -1,23 +1,36 @@
-import { useEffect, useRef } from 'react'
-import { renderAsync } from 'docx-preview'
+import { useEffect, useRef, useState } from 'react'
+import type { Layout } from './lib/layout'
 
-export default function Preview({ blob }: { blob: Blob | null }) {
-  const host = useRef<HTMLDivElement>(null)
+/** Les vraies pages, avec pied de page et sommaire numérotés : ce que tu vois est ce que Word affichera. */
+export default function Preview({ layout }: { layout: Layout | null }) {
   const box = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!blob || !host.current) return
-    renderAsync(blob, host.current, undefined, { className: 'dp', breakPages: true, useBase64URL: true })
-  }, [blob])
+  const [avail, setAvail] = useState(800)
 
   useEffect(() => {
     const el = box.current
     if (!el) return
-    const fit = () => { if (host.current) (host.current.style as CSSStyleDeclaration & { zoom: string }).zoom = String(Math.min(1, el.clientWidth / 860)) }
+    const fit = () => setAvail(Math.max(240, el.clientWidth - 16))
     const ro = new ResizeObserver(fit)
     ro.observe(el); fit()
     return () => ro.disconnect()
   }, [])
 
-  return <div className="preview" ref={box}><div ref={host} id="print-area" /></div>
+  const px = (landscape: boolean) => (landscape ? 842 : 595.3) * (96 / 72)
+  const total = layout?.pages.length ?? 0
+  return (
+    <div className="preview" ref={box}>
+      {!layout && <p className="hint">Chargement de l’aperçu…</p>}
+      <div className="pages">
+        {layout?.pages.map((p, i) => {
+          const z = Math.min(1, avail / px(p.landscape))
+          return (
+            <figure className="pg" key={i} style={{ zoom: z } as React.CSSProperties}>
+              <div dangerouslySetInnerHTML={{ __html: p.html }} />
+              <figcaption>{p.kind === 'cover' ? 'Page de garde' : `Page ${i + 1} sur ${total}`}</figcaption>
+            </figure>
+          )
+        })}
+      </div>
+    </div>
+  )
 }

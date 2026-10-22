@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { parse } from './lib/parse'
-import { DEFAULTS, PRESETS, type PresetKey, type Settings, type Cover } from './lib/types'
+import type { Layout } from './lib/layout'
+import { DEFAULTS, PRESETS, type Block, type PresetKey, type Settings, type Cover } from './lib/types'
 import { SAMPLE } from './sample'
 
 const Preview = lazy(() => import('./Preview'))
@@ -8,7 +9,12 @@ const Modal = lazy(() => import('./Modal'))
 type Acc = typeof import('./account')
 const HAS_BACKEND = !!import.meta.env.VITE_FIREBASE_API_KEY
 const newId = () => crypto.randomUUID()
-const toBlob: typeof import('./lib/build').toBlob = (...a) => import('./lib/build').then(m => m.toBlob(...a))
+const makeLayout = (...a: Parameters<typeof import('./lib/layout').layoutDocument>) => import('./lib/layout').then(m => m.layoutDocument(...a))
+/** Word final : on calcule d'abord les pages, puis on écrit les numéros dans le sommaire. */
+async function makeDocx(blocks: Block[], s: Settings): Promise<Blob> {
+  const [lay, b] = await Promise.all([makeLayout(blocks, s), import('./lib/build')])
+  return b.toBlob(blocks, s, { headings: lay.headingLabels, captions: lay.captionLabels })
+}
 
 type Tab = 'texte' | 'garde' | 'reglages' | 'apercu'
 const TABS: [Tab, string][] = [['texte', 'Texte'], ['garde', 'Page de garde'], ['reglages', 'Réglages'], ['apercu', 'Aperçu']]
@@ -44,7 +50,7 @@ export default function App() {
   const [s, setS] = useState<Settings>(init.s)
   const [preset, setPreset] = useState<PresetKey>(init.preset)
   const [tab, setTab] = useState<Tab>('texte')
-  const [blob, setBlob] = useState<Blob | null>(null)
+  const [layout, setLayout] = useState<Layout | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [docId, setDocId] = useState(init.docId)
@@ -71,7 +77,7 @@ export default function App() {
 
   useEffect(() => {
     const t = setTimeout(() => {
-      toBlob(blocks, s, true).then(b => { setBlob(b); setError('') }).catch(e => setError(String(e.message || e)))
+      makeLayout(blocks, s).then(l => { setLayout(l); setError('') }).catch(e => setError(String(e.message || e)))
       try { localStorage.setItem(KEY, JSON.stringify({ text, s, preset, docId })) } catch { /* quota */ }
     }, 400)
     return () => clearTimeout(t)
@@ -101,7 +107,7 @@ export default function App() {
     }
     setBusy(true)
     try {
-      const docx = await toBlob(blocks, s, false)
+      const docx = await makeDocx(blocks, s)
       if (!pdf) save(docx, 'docx')
       else {
         const r = await fetch(PDF_URL!, { method: 'POST', body: docx })
@@ -231,7 +237,7 @@ export default function App() {
 
         <div className={'view ' + (tab === 'apercu' ? '' : 'hide-mobile')}>
           {error && <p className="error">{error}</p>}
-          <Suspense fallback={<p className="hint">Chargement de l’aperçu…</p>}><Preview blob={blob} /></Suspense>
+          <Suspense fallback={<p className="hint">Chargement de l’aperçu…</p>}><Preview layout={layout} /></Suspense>
         </div>
 
         <div className="dock">
@@ -245,12 +251,11 @@ export default function App() {
         <ul className="inclus">
           {['Page de garde avec logo', 'Sommaire automatique', 'Pagination et pied de page', 'Texte justifié, interligne, marges', 'Tableaux avec légendes numérotées', 'Grands tableaux en paysage, page par page', 'Export Word modifiable + PDF'].map(x => <li key={x}>{x}</li>)}
         </ul>
-        <p className="note">Dans Word, à la première ouverture, clique sur « Oui » à la question sur la mise à jour des champs : c’est ce qui remplit les numéros de page du sommaire.</p>
         <h2>Questions fréquentes</h2>
         <details><summary>Ça marche sur téléphone ?</summary><p>Oui, tout est pensé pour le smartphone : l’écran passe en onglets Texte, Page de garde, Réglages et Aperçu.</p></details>
         <details><summary>Mon texte est-il enregistré chez vous ?</summary><p>Le Word est fabriqué dans ton navigateur : ton texte reste sur ton appareil. Pour le PDF, le fichier est converti sur notre serveur puis supprimé aussitôt.</p></details>
         <details><summary>Combien ça coûte ?</summary><p>Le premier document est gratuit. Ensuite, 1 000 F payés une seule fois donnent l’accès à vie.</p></details>
-        <details><summary>Je peux modifier le fichier après ?</summary><p>Oui : c’est un vrai fichier Word avec de vrais styles de titres, le sommaire se met à jour tout seul.</p></details>
+        <details><summary>Je peux modifier le fichier après ?</summary><p>Oui : c’est un vrai fichier Word avec de vrais styles de titres, le sommaire est déjà rempli avec les bons numéros de page (clic droit › Mettre à jour les champs si tu modifies le texte).</p></details>
       </section>
       {modal && acc && <Suspense fallback={null}><Modal kind={modal} acc={acc} onClose={() => { setModal(null); setPending(null) }} onDone={resume} /></Suspense>}
       <footer className="foot">mondocpro · fait en Côte d’Ivoire</footer>

@@ -10,10 +10,14 @@
     "test": "tsx api/logic.test.ts"
   },
   "dependencies": {
+    "@fontsource/arimo": "^5.3.0",
+    "@fontsource/carlito": "^5.3.0",
+    "@fontsource/gelasio": "^5.3.0",
+    "@fontsource/tinos": "^5.3.0",
     "docx": "^9.13.0",
-    "docx-preview": "^0.4.1",
     "firebase": "^13.1.0",
     "firebase-admin": "^14.5.0",
+    "jszip": "^3.10.2",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   },
