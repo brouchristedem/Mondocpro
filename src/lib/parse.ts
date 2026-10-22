@@ -33,8 +33,26 @@ function splitRow(line: string): string[] {
 const isRowLine = (l: string) => l.includes('\t') || (/^\|.*\|$/.test(l.trim()) && l.trim().length > 2)
 const isSeparator = (l: string) => /^\|?[\s:\-|]+\|?$/.test(l.trim()) && l.includes('-')
 
+/** Retire un sommaire collé avec le texte (lignes « Titre ........ 12 ») : il est regénéré automatiquement. */
+const TOC_LINE = /(\.{3,}|…{2,}|(\. ){3,}|\t+|\s{3,})\s*(\d{1,3}|[ivxlc]{1,6})\s*$/i
+const TOC_TITLE = /^(sommaire|table des mati[èe]res|liste des tableaux)\s*:?$/i
+export function stripToc(lines: string[]): string[] {
+  const out: string[] = []
+  for (let i = 0; i < lines.length; i++) {
+    const t = lines[i].trim()
+    if (TOC_LINE.test(lines[i]) && t.length < 140 && !/^\|/.test(t) && !lines[i].includes('|')) continue
+    if (TOC_TITLE.test(t)) {
+      let k = i + 1
+      while (k < lines.length && !lines[k].trim()) k++
+      if (k < lines.length && TOC_LINE.test(lines[k])) continue
+    }
+    out.push(lines[i])
+  }
+  return out
+}
+
 export function parse(src: string): Block[] {
-  const lines = src.replace(/\r/g, '').split('\n').map(l => l.replace(/\s+$/, ''))
+  const lines = stripToc(src.replace(/\r/g, '').split('\n').map(l => l.replace(/\s+$/, '')))
   const hasBlank = lines.some(l => l.trim() === '')
   const explicit = lines.some(l => /^#{1,4}\s+\S/.test(l))
 
