@@ -66,7 +66,12 @@ export function buildDocument(blocks: Block[], s: Settings, nums?: PageNumbers):
       children: [new Paragraph({ style: 'TableText', alignment: head ? AlignmentType.CENTER : AlignmentType.LEFT, children: runs(text, { size: half(it.size), bold: head }) })],
     })
     const rows = it.rows.map((r, ri) => new TableRow({ tableHeader: ri === 0, cantSplit: true, children: r.map((t, ci) => cell(t, ci, ri === 0)) }))
-    return new Table({ width: { size: it.W, type: WidthType.DXA }, columnWidths: it.colW, layout: TableLayoutType.FIXED, rows })
+    // bordures simples explicites : on ne dépend pas des valeurs par défaut de la bibliothèque ni de Word
+    const line = { style: BorderStyle.SINGLE, size: 4, color: '000000' } as const // 4 = 0,5 pt, comme l'aperçu
+    return new Table({
+      width: { size: it.W, type: WidthType.DXA }, columnWidths: it.colW, layout: TableLayoutType.FIXED, rows,
+      borders: { top: line, bottom: line, left: line, right: line, insideHorizontal: line, insideVertical: line },
+    })
   }
   const toChild = (it: Item): Child => {
     switch (it.k) {

@@ -6,6 +6,9 @@ interface Props { kind: 'login' | 'pay'; acc: Acc; onClose: () => void; onDone: 
 const MSG: Record<string, string> = {
   invalid_txid: 'Cet ID ne ressemble pas à un ID Wave. Il commence par T_ et fait 18 caractères.',
   txid_used: 'Cet ID a déjà servi pour un autre compte.',
+  payment_not_found: 'Aucun paiement trouvé pour cet ID. Vérifie-le ou réessaie dans une minute.',
+  amount_too_low: 'Le montant de ce paiement est inférieur à 1 000 F.',
+  too_many_attempts: 'Trop de tentatives. Écris-nous avec ton ID de transaction, nous activerons ton accès.',
 }
 
 export default function Modal({ kind, acc, onClose, onDone }: Props) {
@@ -14,6 +17,7 @@ export default function Modal({ kind, acc, onClose, onDone }: Props) {
   const [sent, setSent] = useState(false)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+  const [waiting, setWaiting] = useState(false)
 
   const run = async (fn: () => Promise<void>) => {
     setBusy(true); setErr('')
@@ -47,8 +51,10 @@ export default function Modal({ kind, acc, onClose, onDone }: Props) {
               <li>Copie l’ID de transaction (il commence par <code>T_</code>)</li>
               <li>Colle-le ici</li>
             </ol>
+            {waiting && <p className="note">Merci ! Ton paiement est enregistré. Ton accès à vie s’active dès que nous l’avons vérifié : cette fenêtre se ferme toute seule, tu peux aussi revenir plus tard.</p>}
             <form onSubmit={e => { e.preventDefault(); run(async () => {
               const r = await acc.claim('activate', { txid })
+              if (r.status === 202) { setWaiting(true); return } // paiement noté, validation en cours
               if (r.status !== 200) throw new Error(MSG[r.error] || 'Vérification impossible, réessaie dans un instant.')
               onDone()
             }) }}>

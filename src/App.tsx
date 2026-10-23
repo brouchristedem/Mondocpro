@@ -122,6 +122,8 @@ export default function App() {
     setBusy(false)
   }
   const resume = () => { const p = pending; setModal(null); setPending(null); if (p !== null) setTimeout(() => download(p), 0) }
+  // validation manuelle du paiement : dès que le compte passe « payé », la fenêtre se ferme et le téléchargement reprend
+  useEffect(() => { if (modal === 'pay' && account?.paid) resume() }, [account?.paid, modal]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const onLogo = (f?: File) => {
     if (!f) return
