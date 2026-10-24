@@ -96,8 +96,60 @@ function fixFusedHeader(rows: string[][]): string[][] {
   return [[...rows[0].slice(0, m - 1), head], [first, ...rows[0].slice(m)], ...rows.slice(1)]
 }
 
+const FLAT_CAPTION = /^tableau\s+\d+\b/i
+const NUM = /^[-+]?\d[\d\s.,']*\s*(%|€|\$|f|fcfa|xof|h|j|kg|t|m)?$/i
+/** Nombre de colonnes d'un tableau « aplati » (une cellule par ligne), ou 0 si rien de cohérent : en-tête sans nombre, colonnes homogènes, au moins une colonne numérique. */
+function guessColumns(cells: string[]): number {
+  const T = cells.length
+  for (let n = 2; n <= Math.min(12, T / 3); n++) {
+    if (T % n) continue
+    if (cells.slice(0, n).some(c => NUM.test(c))) continue
+    let ok = true, numeric = false
+    for (let c = 0; c < n && ok; c++) {
+      const kinds = new Set<boolean>()
+      for (let r = 1; r < T / n; r++) kinds.add(NUM.test(cells[r * n + c]))
+      if (kinds.size > 1) ok = false
+      if (kinds.has(true)) numeric = true
+    }
+    if (ok && numeric) return n
+  }
+  return 0
+}
+/**
+ * Un tableau copié depuis une application ou un site arrive parfois « aplati » : une cellule par ligne, sous sa légende
+ * « Tableau n : … ». On le reconnaît à la légende, puis on devine le nombre de colonnes (voir guessColumns) et on le
+ * remet en lignes séparées par des tabulations, que le reste du parseur sait lire.
+ */
+function unflattenTables(lines: string[]): string[] {
+  const out: string[] = []
+  for (let i = 0; i < lines.length; i++) {
+    out.push(lines[i])
+    const cap = lines[i].trim()
+    if (!FLAT_CAPTION.test(cap) || cap.length >= 160 || isRowLine(lines[i])) continue
+    const cells: string[] = [], at: number[] = []
+    let j = i + 1
+    for (; j < lines.length; j++) {
+      const t = lines[j].trim()
+      if (!t) continue
+      const k = kindOf(t)
+      if (isRowLine(lines[j]) || /^#{1,4}\s/.test(t) || FLAT_CAPTION.test(t) || t.length > 80 || /[.!?]$/.test(t) || (k !== null && k !== 'caps')) break
+      cells.push(t); at.push(j)
+    }
+    // si un petit texte sans ponctuation suit le tableau, il a pu être pris pour une cellule : on essaie sans lui
+    for (let drop = 0; drop <= 2 && cells.length - drop >= 6; drop++) {
+      const use = cells.slice(0, cells.length - drop)
+      const n = guessColumns(use)
+      if (!n) continue
+      for (let r = 0; r < use.length / n; r++) out.push(use.slice(r * n, (r + 1) * n).join('\t'))
+      i = at[use.length - 1] // les lignes écartées (drop) sont relues comme du texte normal
+      break
+    }
+  }
+  return out
+}
+
 export function parse(src: string): Block[] {
-  const lines = stripToc(src.replace(/\r/g, '').split('\n').map(l => l.replace(/\s+$/, '')))
+  const lines = unflattenTables(stripToc(src.replace(/\r/g, '').split('\n').map(l => l.replace(/\s+$/, ''))))
   const hasBlank = lines.some(l => l.trim() === '')
   const explicit = lines.some(l => /^#{1,4}\s+\S/.test(l))
 

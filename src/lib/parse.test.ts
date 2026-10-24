@@ -51,4 +51,13 @@ assert.deepEqual(tables("| **Désignation** | **Quantité** | **Tarif unitaire**
   [['**Désignation**', '**Quantité**', '**Tarif unitaire**', '**Montant**'], ["Transfert conteneur vide 20' sur parc externe", '**10**', '**45,5 €**', '**455 €**'], ["Transfert conteneur vide 40'", '8', '91 €', '728 €'], ['TOTAL HT', '', '', '1 183 €']])
 // un tableau normal n'est jamais touché
 assert.equal(tables('Poste\tN\tN-1\nTransport\t10\t8\nTotal\t10\t8')[0].length, 3)
+// tableau « aplati » (une cellule par ligne, copié depuis une application) sous sa légende : reconstitué
+const flat = parse('Intro.\n\nTableau 1 : Effectif par service\n\nService\n\nEffectif\n\nPart du total\n\nProduction\n\n55\n\n46 %\n\nLogistique\n\n12\n\n10 %\n\nTotal\n\n67\n\n100 %\n\nPartie 2 : Analyse\n\nTexte.') as Any[]
+assert.deepEqual(flat.map(b => b.t), ['p', 'table', 'h', 'p'])
+assert.equal(flat[1].caption, 'Effectif par service')
+assert.deepEqual(flat[1].rows!.slice(0, 2), [['Service', 'Effectif', 'Part du total'], ['Production', '55', '46 %']])
+assert.equal(flat[1].rows!.length, 4)
+// une légende suivie d'un vrai paragraphe, ou une simple liste de lignes courtes sans légende : jamais transformés en tableau
+assert.equal(tables('Tableau 1 : Coûts\n\nCe tableau montre les coûts de transport par zone.\n\nSuite.').length, 0)
+assert.equal(tables('Les gammes :\n\nJus de fruits\n\nConserves\n\nCéréales\n\nSuite du texte.').length, 0)
 console.log('parseur : OK')
