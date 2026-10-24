@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "test": "tsx api/logic.test.ts && tsx api/pay.test.ts && tsx src/lib/parse.test.ts && tsx src/lib/plan.test.ts && python3 server/test_docx_check.py"
+    "test": "tsx api/logic.test.ts && tsx src/lib/parse.test.ts && tsx src/lib/plan.test.ts && python3 server/test_docx_check.py"
   },
   "dependencies": {
     "@fontsource/arimo": "^5.3.0",

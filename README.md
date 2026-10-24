@@ -8,14 +8,10 @@ Texte collé → document Word (et PDF) prêt à rendre : page de garde, sommair
 
 ## Paiement : comment l'accès à vie est activé
 
-Un ID de transaction collé par le client **n'active jamais l'accès tout seul** (n'importe qui pouvait en inventer un). Deux parcours :
+Un ID de transaction collé par le client **n'active jamais l'accès tout seul** (n'importe qui pouvait en inventer un). Deux modes :
 
-1. **Automatique avec CinetPay (recommandé, aucune validation à la main).** Le client clique sur « Payer 1 000 F » : le serveur crée la commande (`payments/<id>`, montant décidé côté serveur), le client paie sur la page CinetPay, puis le serveur redemande le **statut réel** à CinetPay (webhook `/api/pay-notify` + vérification au retour sur le site) et n'active `users/<uid>.paid` que sur `SUCCESS`. Fonctionne aussi si le webhook tarde. Pour l'activer, dans Vercel > Settings > Environment Variables :
-   - `CINETPAY_BASE_URL`, `CINETPAY_API_KEY`, `CINETPAY_API_PASSWORD` (mêmes valeurs que Moncvproci si c'est le même compte marchand, serveur uniquement) ;
-   - `SITE_URL` = adresse complète du site en `https://…` (utilisée pour le retour et le webhook) ;
-   - `PRICE_FCFA` (facultatif, 1000 par défaut ; mets le montant frais compris si tu veux les répercuter, et change le texte du site en conséquence) ;
-   - puis en dernier `VITE_CINETPAY_ENABLED=1`, et redéploie.
-2. **Validation manuelle (tant que `VITE_CINETPAY_ENABLED` n'est pas à 1).** Le client colle son ID `T_…` : la demande passe « en attente » (`txids/<ID>` avec `status: pending`). Tu vérifies le paiement dans Wave Business, puis tu mets `paid: true` dans `users/<uid>` (console Firebase > Firestore). C'est le mode de secours, à ne garder que le temps de configurer CinetPay.
+1. **Validation manuelle (mode actuel).** Le client colle son ID `T_…` : la demande passe « en attente » (`txids/<ID>` avec `status: pending`, et `users/<uid>.pendingTxid`). Tu ouvres ton compte Wave Business, tu vérifies que l'ID existe et que le montant est de 1 000 F, puis dans la console Firebase > Firestore tu mets `paid: true` dans `users/<uid>` (et `status: "verified"` dans `txids/<ID>`). Le site détecte le changement en direct : la fenêtre se ferme et le téléchargement reprend.
+2. **Automatique.** Brancher une vérification auprès du prestataire : passer une fonction `verify(txid)` à `handle()` dans `api/claim.ts` (elle renvoie `{ amount, currency }` du paiement réussi, ou `null`). Le code vérifie alors le montant (≥ 1 000 F, en XOF), refuse un ID déjà utilisé et n'active que sur preuve. Le plus simple est de réutiliser l'intégration CinetPay de Moncvproci (webhook vérifié côté serveur).
 
 Limites connues : le Word est fabriqué dans le navigateur, donc le blocage « premier document gratuit » reste contournable par un utilisateur technique (le serveur plafonne les retéléchargements à 8 par compte). Seule une génération du fichier côté serveur le rendrait étanche.
 - `firestore.rules` : règles à publier dans la console Firebase.

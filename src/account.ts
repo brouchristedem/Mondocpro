@@ -58,29 +58,3 @@ export async function claim(action: 'download' | 'activate', payload: Record<str
   const body = await r.json().catch(() => ({}))
   return { status: r.status, error: (body.error as string | undefined) ?? '' }
 }
-
-/** Paiement automatique (CinetPay) : actif seulement si VITE_CINETPAY_ENABLED=1, sinon l'ancien parcours (ID Wave en attente) reste. */
-export const CINETPAY = env.VITE_CINETPAY_ENABLED === '1'
-
-async function payCall(method: 'POST' | 'GET', query = '') {
-  const token = await auth.currentUser?.getIdToken()
-  const r = await fetch((env.VITE_API_URL || '') + '/api/pay' + query, { method, headers: { Authorization: `Bearer ${token}` } })
-  const body = await r.json().catch(() => ({}))
-  return { status: r.status, body }
-}
-
-/** Crée la commande côté serveur (le montant n'est jamais envoyé par le navigateur) et renvoie la page de paiement. */
-export async function startPay(): Promise<{ paymentUrl: string }> {
-  const r = await payCall('POST')
-  if (r.status !== 200 || !r.body.paymentUrl) {
-    if (r.body.paid) return { paymentUrl: location.origin }
-    throw new Error(r.status === 429 ? 'Trop de tentatives. Réessaie plus tard.' : 'Le paiement n’a pas pu démarrer. Réessaie dans un instant.')
-  }
-  return { paymentUrl: String(r.body.paymentUrl) }
-}
-
-/** Au retour du paiement : le serveur redemande le statut réel au prestataire (filet de sécurité si le webhook tarde). */
-export async function payStatus(id: string): Promise<{ status: string; paid: boolean } | null> {
-  const r = await payCall('GET', `?tx=${encodeURIComponent(id)}`)
-  return r.status === 200 ? { status: String(r.body.status), paid: !!r.body.paid } : null
-}
