@@ -7,6 +7,17 @@ service cloud.firestore {
       allow read: if request.auth != null && request.auth.uid == uid;
       allow write: if false;
     }
+    // Brouillon synchronisé (texte, réglages, page de garde) : chacun lit et écrit uniquement le sien, avec des limites de taille.
+    match /drafts/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if request.auth != null && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['text', 's', 'preset', 'docId', 'updatedAt'])
+        && request.resource.data.text is string && request.resource.data.text.size() < 600000
+        && request.resource.data.s is string && request.resource.data.s.size() < 300000
+        && request.resource.data.preset is string && request.resource.data.preset.size() < 20
+        && request.resource.data.docId is string && request.resource.data.docId.size() <= 64
+        && request.resource.data.updatedAt is number;
+    }
     match /{document=**} {
       allow read, write: if false;
     }

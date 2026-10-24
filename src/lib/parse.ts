@@ -76,6 +76,26 @@ export function stripToc(lines: string[]): string[] {
   return out
 }
 
+/**
+ * Tableau collé dont le saut de ligne entre l'en-tête et la 1re ligne a disparu : la dernière cellule de l'en-tête
+ * contient alors aussi la 1re cellule de la ligne suivante (« Tarif unitaireConteneur 20' »), et l'en-tête compte
+ * 2m−1 cellules quand les autres lignes en ont m. On recoupe à la jonction minuscule→Majuscule. Sinon : inchangé.
+ */
+function fixFusedHeader(rows: string[][]): string[][] {
+  if (rows.length < 2) return rows
+  const lens = rows.slice(1).map(r => r.length)
+  const m = [...new Set(lens)].sort((a, b) => lens.filter(x => x === b).length - lens.filter(x => x === a).length)[0]
+  if (m < 2 || rows[0].length !== 2 * m - 1) return rows
+  const merged = rows[0][m - 1]
+  const k = merged.search(/[a-zà-ÿ0-9)'’.%€][A-ZÀ-Ý]/)
+  if (k < 0) return rows
+  let head = merged.slice(0, k + 1).trim()
+  const first = merged.slice(k + 1).replace(/\*\*/g, '').trim() // la 1re ligne n'est pas un en-tête : pas de gras
+  if (!head || !first) return rows
+  if ((head.match(/\*\*/g) ?? []).length % 2) head += '**'
+  return [[...rows[0].slice(0, m - 1), head], [first, ...rows[0].slice(m)], ...rows.slice(1)]
+}
+
 export function parse(src: string): Block[] {
   const lines = stripToc(src.replace(/\r/g, '').split('\n').map(l => l.replace(/\s+$/, '')))
   const hasBlank = lines.some(l => l.trim() === '')
@@ -128,10 +148,11 @@ export function parse(src: string): Block[] {
         i = j - 1
         continue
       }
-      if (rows.length >= 2 && Math.max(...rows.map(r => r.length)) >= 2) {
+      const tbl = fixFusedHeader(rows)
+      if (tbl.length >= 2 && Math.max(...tbl.map(r => r.length)) >= 2) {
         flush()
-        const n = Math.max(...rows.map(r => r.length))
-        const norm = rows.map(r => Array.from({ length: n }, (_, c) => r[c] ?? ''))
+        const n = Math.max(...tbl.map(r => r.length))
+        const norm = tbl.map(r => Array.from({ length: n }, (_, c) => r[c] ?? ''))
         let caption: string | undefined
         const prev = out[out.length - 1]
         if (prev?.t === 'p' && CAPTION.test(prev.text) && prev.text.length < 160) { caption = prev.text.match(CAPTION)![1]; out.pop() }

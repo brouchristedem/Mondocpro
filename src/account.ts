@@ -3,7 +3,7 @@ import {
   GoogleAuthProvider, getAuth, isSignInWithEmailLink, onAuthStateChanged, sendSignInLinkToEmail,
   signInWithEmailLink, signInWithPopup, signOut,
 } from 'firebase/auth'
-import { doc, getFirestore, onSnapshot } from 'firebase/firestore'
+import { doc, getDoc, getFirestore, onSnapshot, setDoc } from 'firebase/firestore'
 
 const env = import.meta.env
 export const HAS_BACKEND = !!env.VITE_FIREBASE_API_KEY
@@ -17,15 +17,23 @@ const auth = getAuth(app)
 const db = getFirestore(app)
 const MAIL = 'mondocpro:email'
 
-export interface Account { email: string | null; paid: boolean }
+export interface Account { uid: string; email: string | null; paid: boolean; freeDocId?: string; loaded?: boolean }
+
+/** Brouillon synchronisé sur le compte : le même texte, les mêmes réglages et le même document sur tous les appareils. */
+export interface Draft { text: string; s: string; preset: string; docId: string; updatedAt: number }
+export async function loadDraft(uid: string): Promise<Draft | null> {
+  const snap = await getDoc(doc(db, 'drafts', uid))
+  return snap.exists() ? (snap.data() as Draft) : null
+}
+export const saveDraft = (uid: string, d: Draft) => setDoc(doc(db, 'drafts', uid), d)
 
 export function watch(cb: (a: Account | null) => void): () => void {
   let stop = () => {}
   const off = onAuthStateChanged(auth, u => {
     stop(); stop = () => {}
     if (!u) return cb(null)
-    cb({ email: u.email, paid: false })
-    stop = onSnapshot(doc(db, 'users', u.uid), s => cb({ email: u.email, paid: !!s.data()?.paid }), () => {})
+    cb({ uid: u.uid, email: u.email, paid: false })
+    stop = onSnapshot(doc(db, 'users', u.uid), s => cb({ uid: u.uid, email: u.email, loaded: true, paid: !!s.data()?.paid, freeDocId: s.data()?.freeDocId as string | undefined }), () => {})
   })
   return () => { off(); stop() }
 }

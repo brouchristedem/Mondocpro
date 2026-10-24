@@ -1,5 +1,5 @@
 import { extractCover } from './lib/cover'
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { parse } from './lib/parse'
 import type { Layout } from './lib/layout'
 import { DEFAULTS, PRESETS, type Block, type PresetKey, type Settings, type Cover } from './lib/types'
@@ -22,11 +22,11 @@ const TABS: [Tab, string][] = [['texte', 'Texte'], ['garde', 'Page de garde'], [
 const KEY = 'mondocpro:v1'
 const PDF_URL = import.meta.env.VITE_PDF_URL as string | undefined
 
-function load(): { text: string; s: Settings; preset: PresetKey; docId: string } {
+function load(): { text: string; s: Settings; preset: PresetKey; docId: string; updatedAt: number } {
   try {
     const d = JSON.parse(localStorage.getItem(KEY) || '')
-    return { text: d.text, s: { ...DEFAULTS, ...d.s, cover: { ...DEFAULTS.cover, ...d.s.cover } }, preset: d.preset, docId: d.docId || newId() }
-  } catch { return { text: SAMPLE, s: DEFAULTS, preset: 'memoire', docId: newId() } }
+    return { text: d.text, s: { ...DEFAULTS, ...d.s, cover: { ...DEFAULTS.cover, ...d.s.cover } }, preset: d.preset, docId: d.docId || newId(), updatedAt: Number(d.updatedAt) || 0 }
+  } catch { return { text: SAMPLE, s: DEFAULTS, preset: 'memoire', docId: newId(), updatedAt: 0 } }
 }
 
 const Logo = () => (
@@ -59,6 +59,16 @@ export default function App() {
   const [account, setAccount] = useState<import('./account').Account | null>(null)
   const [modal, setModal] = useState<null | 'login' | 'pay'>(null)
   const [pending, setPending] = useState<boolean | null>(null)
+  // synchronisation avec le compte : « stamp » = date de la dernière modification faite par l'utilisateur (0 = jamais depuis la mise en place)
+  const stamp = useRef(init.updatedAt)
+  const snap = useRef(JSON.stringify({ text: init.text, s: init.s, preset: init.preset, docId: init.docId }))
+  const pushed = useRef(0)
+  const [synced, setSynced] = useState(false)
+  const cur = useRef({ text, s, preset, docId })
+  cur.current = { text, s, preset, docId }
+  const uid = account?.uid
+  const accountRef = useRef(account)
+  accountRef.current = account
 
   const set = (p: Partial<Settings>) => setS(v => ({ ...v, ...p }))
   const setCover = (p: Partial<Cover>) => setS(v => ({ ...v, cover: { ...v.cover, ...p } }))
@@ -82,10 +92,72 @@ export default function App() {
   useEffect(() => {
     const t = setTimeout(() => {
       makeLayout(blocks, sEff).then(l => { setLayout(l); setError('') }).catch(e => setError(String(e.message || e)))
-      try { localStorage.setItem(KEY, JSON.stringify({ text, s, preset, docId })) } catch { /* quota */ }
+      const now = JSON.stringify({ text, s, preset, docId })
+      if (now !== snap.current) { snap.current = now; stamp.current = Date.now() }
+      try { localStorage.setItem(KEY, JSON.stringify({ text, s, preset, docId, updatedAt: stamp.current })) } catch { /* quota */ }
     }, 400)
     return () => clearTimeout(t)
   }, [blocks, s, sEff, text, preset, docId])
+
+  /** Texte + réglages prêts à être envoyés ; le logo (souvent lourd) est laissé de côté s'il ferait dépasser la limite de Firestore (1 Mo). */
+  const pack = (at: number, docIdOverride?: string) => {
+    const c = cur.current
+    let sj = JSON.stringify(c.s)
+    if (sj.length > 250_000 || c.text.length + sj.length > 800_000) sj = JSON.stringify({ ...c.s, cover: { ...c.s.cover, logo: undefined } })
+    return { text: c.text, s: sj, preset: c.preset, docId: docIdOverride ?? c.docId, updatedAt: at }
+  }
+  const adopt = (r: import('./account').Draft) => {
+    const c = cur.current
+    // filet de sécurité : le brouillon remplacé reste récupérable dans ce navigateur
+    if (c.text.trim() && c.text !== r.text) try { localStorage.setItem(KEY + ':sauvegarde', JSON.stringify({ ...c, at: Date.now() })) } catch { /* quota */ }
+    try {
+      const rs = JSON.parse(r.s)
+      const logo = rs.cover?.logo ?? c.s.cover.logo
+      const next: Settings = { ...DEFAULTS, ...rs, cover: { ...DEFAULTS.cover, ...rs.cover, logo } }
+      snap.current = JSON.stringify({ text: r.text, s: next, preset: r.preset, docId: r.docId })
+      stamp.current = r.updatedAt
+      pushed.current = r.updatedAt
+      setText(r.text); setS(next); setPreset((r.preset as PresetKey) in PRESETS ? (r.preset as PresetKey) : 'memoire'); setDocId(r.docId)
+    } catch { /* brouillon illisible : on garde le local */ }
+  }
+  // à la connexion, puis à chaque retour sur l'onglet : on récupère le brouillon du compte s'il est plus récent
+  useEffect(() => {
+    if (!acc || !uid) { setSynced(false); return }
+    let alive = true
+    const pull = async (first: boolean) => {
+      const r = await acc.loadDraft(uid).catch(() => undefined)
+      if (!alive || r === undefined) return // erreur réseau : on ne touche à rien
+      if (r && r.updatedAt > stamp.current) adopt(r)
+      else if (r && stamp.current > Math.max(r.updatedAt, pushed.current)) {
+        // le brouillon de cet appareil est plus récent que celui du compte : on l'envoie
+        const at = stamp.current
+        acc.saveDraft(uid, pack(at)).then(() => { pushed.current = Math.max(pushed.current, at) }).catch(() => {})
+      } else if (first && !r) {
+        // 1re synchronisation de ce compte : on envoie le brouillon local, avec le document gratuit déjà connu du serveur s'il existe
+        if (!stamp.current) stamp.current = Date.now()
+        for (let i = 0; i < 20 && alive && !accountRef.current?.loaded; i++) await new Promise(res => setTimeout(res, 150))
+        const id = accountRef.current?.freeDocId || cur.current.docId
+        if (id !== cur.current.docId) setDocId(id)
+        const at = stamp.current
+        acc.saveDraft(uid, pack(at, id)).then(() => { pushed.current = Math.max(pushed.current, at) }).catch(() => {})
+      }
+      if (first && alive) setSynced(true)
+    }
+    pull(true)
+    const onVis = () => { if (document.visibilityState === 'visible') pull(false) }
+    document.addEventListener('visibilitychange', onVis)
+    return () => { alive = false; document.removeEventListener('visibilitychange', onVis) }
+  }, [acc, uid]) // eslint-disable-line react-hooks/exhaustive-deps
+  // ensuite, chaque modification est envoyée au compte (au plus une fois toutes les 2 s)
+  useEffect(() => {
+    if (!acc || !uid || !synced) return
+    const t = setTimeout(() => {
+      const at = stamp.current
+      if (at <= pushed.current) return
+      acc.saveDraft(uid, pack(at)).then(() => { pushed.current = Math.max(pushed.current, at) }).catch(() => {})
+    }, 2000)
+    return () => clearTimeout(t)
+  }, [text, s, preset, docId, acc, uid, synced]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const pickPreset = (k: PresetKey) => {
     setPreset(k)

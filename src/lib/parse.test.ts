@@ -44,4 +44,11 @@ assert.deepEqual(kinds('1. Introduction\n\nTexte.\n\n2. Analyse du besoin\n\nTex
 // énumération avec « ; » en fin de ligne : un paragraphe par élément
 assert.deepEqual((parse('Le client souhaite :\n\n10 conteneurs de 20 pieds ;\n8 conteneurs de 40 pieds.\n\nSuite.') as Any[]).map(b => b.text),
   ['Le client souhaite :', '10 conteneurs de 20 pieds ;', '8 conteneurs de 40 pieds.', 'Suite.'])
+// saut de ligne perdu entre l'en-tête et la 1re ligne : la 1re ligne n'est plus fondue dans l'en-tête
+assert.deepEqual(tables("Type de conteneur\tTarif unitaireConteneur vide 20'\t45,5 €\nConteneur vide 40'\t91 €")[0],
+  [['Type de conteneur', 'Tarif unitaire'], ["Conteneur vide 20'", '45,5 €'], ["Conteneur vide 40'", '91 €']])
+assert.deepEqual(tables("| **Désignation** | **Quantité** | **Tarif unitaire** | **MontantTransfert conteneur vide 20' sur parc externe** | **10** | **45,5 €** | **455 €** |\n| --- | --- | --- | --- | --- | --- | --- |\n| Transfert conteneur vide 40' | 8 | 91 € | 728 € |\n| TOTAL HT |  |  | 1 183 € |")[0],
+  [['**Désignation**', '**Quantité**', '**Tarif unitaire**', '**Montant**'], ["Transfert conteneur vide 20' sur parc externe", '**10**', '**45,5 €**', '**455 €**'], ["Transfert conteneur vide 40'", '8', '91 €', '728 €'], ['TOTAL HT', '', '', '1 183 €']])
+// un tableau normal n'est jamais touché
+assert.equal(tables('Poste\tN\tN-1\nTransport\t10\t8\nTotal\t10\t8')[0].length, 3)
 console.log('parseur : OK')
