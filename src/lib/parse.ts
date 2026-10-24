@@ -8,6 +8,9 @@ const DEC1 = /^\d{1,2}\s*[.)]\s+\S/
 const DEC2 = /^\d{1,2}\.\d{1,2}\.?\s+\S/
 const DEC3 = /^\d{1,2}\.\d{1,2}\.\d{1,2}\.?\s+\S/
 const CAPTION = /^tableau\s*\d*\s*[:.\-–—]?\s*(.*)$/i
+const HR = /^([-*_])(\s*\1){2,}$/
+/** Numéro d'une ligne « 3. texte » ou « 3) texte » (sinon null). */
+const listNo = (l: string): number | null => { const m = l.match(/^(\d{1,2})[.)]\s+\S/); return m ? Number(m[1]) : null }
 
 const ORDER = ['chap', 'roman', 'letter', 'dec1', 'dec2', 'dec3'] as const
 type Kind = (typeof ORDER)[number] | 'special' | 'caps'
@@ -93,6 +96,8 @@ export function parse(src: string): Block[] {
     const raw = lines[i]
     const line = raw.trim()
     if (!line) { flush(); continue }
+    // filet Markdown (---, ***, ___, - - -) : séparateur, jamais du texte à imprimer
+    if (HR.test(line) && !raw.includes('\t')) { flush(); continue }
 
     const loose = isLooseHeader(lines, i)
     if (isRowLine(raw) || loose) {
@@ -146,12 +151,18 @@ export function parse(src: string): Block[] {
 
     if (/^([-•*–])\s+\S/.test(line)) { flush(); out.push({ t: 'li', text: line.replace(/^([-•*–])\s+/, '') }); continue }
 
+    // liste numérotée (1. … 2. … sur des lignes qui se suivent) : un paragraphe par ligne, jamais un titre
+    const n = listNo(line)
+    if (n !== null && (listNo((lines[i - 1] ?? '').trim()) === n - 1 || listNo((lines[i + 1] ?? '').trim()) === n + 1)) {
+      flush(); out.push({ t: 'p', text: line }); continue
+    }
+
     if (!explicit) {
       const k = kindOf(line)
       if (k) { flush(); out.push({ t: 'h', level: levelFor(k), text: line }); continue }
     }
 
-    if (hasBlank) para.push(line)
+    if (hasBlank) { para.push(line); if (line.endsWith(';')) flush() } // « ; » en fin de ligne = élément d'une énumération
     else out.push({ t: 'p', text: line })
   }
   flush()

@@ -32,4 +32,16 @@ assert.equal(t.caption, 'Coûts')
 assert.equal(t.rows!.length, 3)
 // deux tableaux séparés par du texte restent deux tableaux
 assert.equal(tables('A\tB\n1\t2\n\nTexte entre les deux.\n\nC\tD\n3\t4').length, 2)
+// filets Markdown : supprimés, jamais imprimés comme texte
+assert.deepEqual((parse('Avant.\n\n---\n\nAprès.\n\n***\n\n- - -\n\nFin.') as Any[]).map(b => b.text), ['Avant.', 'Après.', 'Fin.'])
+assert.equal(tables('Poste\tN\n-\t-\nA\t1').length, 1) // une ligne de tirets en tabulations reste une ligne de tableau
+// liste numérotée sur des lignes qui se suivent : un paragraphe par ligne (avec ou sans point final), jamais un titre
+assert.deepEqual((parse('On distingue :\n\n1. **A** : un.\n2. **B** : deux.\n3. **C** : trois.\n\nSuite.') as Any[]).map(b => b.text),
+  ['On distingue :', '1. **A** : un.', '2. **B** : deux.', '3. **C** : trois.', 'Suite.'])
+assert.deepEqual(kinds('Étapes :\n\n1. Collecte\n2. Calcul\n3. Classement\n\nSuite.'), ['p', 'p', 'p', 'p', 'p'])
+// de vrais titres numérotés, séparés par du texte, restent des titres
+assert.deepEqual(kinds('1. Introduction\n\nTexte.\n\n2. Analyse du besoin\n\nTexte.'), ['h', 'p', 'h', 'p'])
+// énumération avec « ; » en fin de ligne : un paragraphe par élément
+assert.deepEqual((parse('Le client souhaite :\n\n10 conteneurs de 20 pieds ;\n8 conteneurs de 40 pieds.\n\nSuite.') as Any[]).map(b => b.text),
+  ['Le client souhaite :', '10 conteneurs de 20 pieds ;', '8 conteneurs de 40 pieds.', 'Suite.'])
 console.log('parseur : OK')
