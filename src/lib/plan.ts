@@ -25,6 +25,38 @@ export const widthOf = (s: Settings, landscape: boolean) => {
   return (landscape ? A4.h : A4.w) - m.left - m.right
 }
 
+/**
+ * Largeurs de colonnes en twips (leur somme vaut exactement W).
+ * Une colonne n'est jamais plus étroite que son mot le plus long (sinon les mots sont coupés au milieu) ;
+ * l'espace restant est réparti selon la longueur du contenu.
+ */
+export function columnWidths(rows: string[][], size: number, W: number): number[] {
+  const char = size * 20 * 0.55 // largeur moyenne d'un caractère (gras compris), en twips
+  const pad = 180 + 40 // marges gauche/droite de la cellule + bordures
+  const n = rows[0].length
+  const min: number[] = [], want: number[] = []
+  for (let c = 0; c < n; c++) {
+    let word = 1, line = 1
+    for (const r of rows) {
+      const t = (r[c] ?? '').replace(/\*+/g, '')
+      line = Math.max(line, t.length)
+      for (const w of t.split(/\s+/)) word = Math.max(word, w.length)
+    }
+    min.push(Math.min(word, 30) * char + pad)
+    want.push(Math.max(Math.min(line, 40) * char + pad, min[c]))
+  }
+  const sum = (a: number[]) => a.reduce((x, y) => x + y, 0)
+  let w: number[]
+  if (sum(want) <= W) w = want.map(x => (x * W) / sum(want))
+  else if (sum(min) <= W) {
+    const extra = W - sum(min), room = sum(want) - sum(min)
+    w = min.map((m, c) => m + ((want[c] - m) * extra) / room)
+  } else w = min.map(x => (x * W) / sum(min))
+  const out = w.map(Math.floor)
+  out[n - 1] += W - sum(out)
+  return out
+}
+
 export function plan(blocks: Block[], s: Settings): Plan {
   const segs: Segment[] = [{ landscape: false, items: [] }]
   const cur = () => segs[segs.length - 1]
@@ -35,10 +67,8 @@ export function plan(blocks: Block[], s: Settings): Plan {
   const tableItems = (b: Extract<Block, { t: 'table' }>, landscape: boolean): Item[] => {
     const cols = b.rows[0].length
     const size = cols >= 7 ? 9 : cols >= 5 ? Math.max(9, s.size - 2) : Math.max(9, s.size - 1)
-    const weights = b.rows[0].map((_, c) => Math.min(40, Math.max(5, ...b.rows.map(r => r[c].length))))
-    const total = weights.reduce((a, x) => a + x, 0)
     const W = widthOf(s, landscape)
-    const colW = weights.map(w => Math.floor((w / total) * W))
+    const colW = columnWidths(b.rows, size, W)
     const out: Item[] = []
     tableNo++
     if (b.caption !== undefined) { captions.push(b.caption); out.push({ k: 'cap', no: captions.length, caption: b.caption }) }

@@ -30,21 +30,43 @@ function splitRow(line: string): string[] {
   if (line.includes('\t')) return line.split('\t').map(c => c.trim())
   return line.replace(/^\||\|$/g, '').split('|').map(c => c.trim())
 }
-const isRowLine = (l: string) => l.includes('\t') || (/^\|.*\|$/.test(l.trim()) && l.trim().length > 2)
-const isSeparator = (l: string) => /^\|?[\s:\-|]+\|?$/.test(l.trim()) && l.includes('-')
+const isPipeRow = (l: string) => /^\|.*\|$/.test(l.trim()) && l.trim().length > 2
+/** Une tabulation en tout début de ligne est un retrait (paragraphe), pas une colonne. */
+const isRowLine = (l: string) => l.replace(/^\t+/, '').includes('\t') || isPipeRow(l)
+/** Ligne « | --- | :---: | » d'un tableau Markdown. Une ligne de tirets en tabulations (« - ⇥ - ») est une vraie ligne de données. */
+const isSeparator = (l: string) => /^\|?[ :\-|]+\|?$/.test(l.trim()) && l.includes('-') && l.includes('|')
+/** Tableau Markdown sans barre en début/fin de ligne : reconnu seulement si la ligne suivante est un séparateur. */
+const isLooseHeader = (lines: string[], i: number) =>
+  lines[i].includes('|') && !lines[i].includes('\t') && i + 1 < lines.length && isSeparator(lines[i + 1])
+const LIST_MARK = /^(\d{1,2}[.)]|[a-z][.)]|[•·▪●■◦○\-*–—])$/i
 
-/** Retire un sommaire collé avec le texte (lignes « Titre ........ 12 ») : il est regénéré automatiquement. */
-const TOC_LINE = /(\.{3,}|…{2,}|(\. ){3,}|\t+|\s{3,})\s*(\d{1,3}|[ivxlc]{1,6})\s*$/i
+/**
+ * Retire un sommaire collé avec le texte : il est regénéré automatiquement.
+ * - points de suite (« Titre ........ 12 ») : toujours retiré ;
+ * - tabulation ou grands espaces (« Titre ⇥ 12 ») : retiré seulement si le début de ligne est un vrai titre
+ *   (INTRODUCTION, CHAPITRE 1, I., 1.1…) ou une légende « Tableau n ». Sinon c'est une ligne de tableau.
+ */
+const TOC_DOTS = /(\.{3,}|…{2,}|(\. ){3,})\s*(\d{1,3}|[ivxlc]{1,6})\s*$/i
+const TOC_SEP = /^([^\t]*\S)(?:\t+| {3,})(\d{1,3}|[ivxlc]{1,6})$/i
 const TOC_TITLE = /^(sommaire|table des mati[èe]res|liste des tableaux)\s*:?$/i
+function isTocLine(l: string): boolean {
+  const t = l.trim()
+  if (!t || t.length >= 140 || t.includes('|')) return false
+  if (TOC_DOTS.test(t)) return true
+  const m = t.match(TOC_SEP)
+  if (!m) return false
+  const head = m[1].trim()
+  const k = kindOf(head)
+  return (k !== null && k !== 'caps') || CAPTION.test(head)
+}
 export function stripToc(lines: string[]): string[] {
   const out: string[] = []
   for (let i = 0; i < lines.length; i++) {
-    const t = lines[i].trim()
-    if (TOC_LINE.test(lines[i]) && t.length < 140 && !/^\|/.test(t) && !lines[i].includes('|')) continue
-    if (TOC_TITLE.test(t)) {
+    if (isTocLine(lines[i])) continue
+    if (TOC_TITLE.test(lines[i].trim())) {
       let k = i + 1
       while (k < lines.length && !lines[k].trim()) k++
-      if (k < lines.length && TOC_LINE.test(lines[k])) continue
+      if (k < lines.length && isTocLine(lines[k])) continue
     }
     out.push(lines[i])
   }
@@ -72,10 +94,35 @@ export function parse(src: string): Block[] {
     const line = raw.trim()
     if (!line) { flush(); continue }
 
-    if (isRowLine(raw)) {
+    const loose = isLooseHeader(lines, i)
+    if (isRowLine(raw) || loose) {
       const rows: string[][] = []
       let j = i
-      while (j < lines.length && isRowLine(lines[j])) { if (!isSeparator(lines[j])) rows.push(splitRow(lines[j])); j++ }
+      const isRow = (l: string) => isRowLine(l) || (loose && l.includes('|') && l.trim() !== '')
+      const collect = (gaps: boolean) => {
+        rows.length = 0
+        j = i
+        while (j < lines.length) {
+          if (isRow(lines[j])) { if (!isSeparator(lines[j])) rows.push(splitRow(lines[j])); j++ }
+          else if (gaps && !lines[j].trim()) {
+            // Word/PDF collent parfois une ligne vide entre deux lignes d'un même tableau
+            let k = j
+            while (k < lines.length && !lines[k].trim()) k++
+            if (k < lines.length && isRow(lines[k])) j = k
+            else break
+          } else break
+        }
+      }
+      collect(false)
+      if (rows.length < 2) collect(true)
+      // liste numérotée / à puces copiée depuis Word (« 1. ⇥ texte ») : ce n'est pas un tableau
+      const trimmed = rows.map(r => (r[0] === '' ? r.slice(1) : r))
+      if (rows.length >= 2 && trimmed.every(r => r.length === 2 && LIST_MARK.test(r[0]))) {
+        flush()
+        for (const r of trimmed) out.push(/^[\d a-z]*[.)]$/i.test(r[0]) ? { t: 'p', text: `${r[0]} ${r[1]}` } : { t: 'li', text: r[1] })
+        i = j - 1
+        continue
+      }
       if (rows.length >= 2 && Math.max(...rows.map(r => r.length)) >= 2) {
         flush()
         const n = Math.max(...rows.map(r => r.length))
