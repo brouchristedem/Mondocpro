@@ -59,6 +59,7 @@ export default function App() {
   const [account, setAccount] = useState<import('./account').Account | null>(null)
   const [modal, setModal] = useState<null | 'login' | 'pay'>(null)
   const [pending, setPending] = useState<boolean | null>(null)
+  const [notice, setNotice] = useState('')
 
   const set = (p: Partial<Settings>) => setS(v => ({ ...v, ...p }))
   const setCover = (p: Partial<Cover>) => setS(v => ({ ...v, cover: { ...v.cover, ...p } }))
@@ -124,6 +125,28 @@ export default function App() {
   const resume = () => { const p = pending; setModal(null); setPending(null); if (p !== null) setTimeout(() => download(p), 0) }
   // validation manuelle du paiement : dès que le compte passe « payé », la fenêtre se ferme et le téléchargement reprend
   useEffect(() => { if (modal === 'pay' && account?.paid) resume() }, [account?.paid, modal]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // retour de la page de paiement : ?pay=<commande> (réussi ou en cours) ou ?payfail=1 (échec)
+  useEffect(() => {
+    const q = new URLSearchParams(location.search)
+    if (q.has('payfail')) { setError('Le paiement n’a pas abouti. Tu n’as rien payé : tu peux réessayer.'); history.replaceState(null, '', location.pathname) }
+    const id = q.get('pay')
+    if (!id || !acc || !account) return
+    if (account.paid) { setNotice('Paiement confirmé : ton accès à vie est actif. Tu peux télécharger.'); history.replaceState(null, '', location.pathname); return }
+    let alive = true
+    setNotice('Paiement en cours de confirmation…')
+    ;(async () => {
+      for (let i = 0; i < 12 && alive; i++) {
+        const r = await acc.payStatus(id).catch(() => null)
+        if (r?.paid) { if (alive) setNotice('Paiement confirmé : ton accès à vie est actif. Tu peux télécharger.'); break }
+        if (r && (r.status === 'FAILED' || r.status === 'EXPIRED')) { if (alive) { setNotice(''); setError('Le paiement n’a pas abouti. Tu n’as rien payé : tu peux réessayer.') } break }
+        if (i === 11 && alive) setNotice('Paiement reçu, la confirmation tarde. Ton accès s’activera tout seul : recharge la page dans quelques minutes.')
+        await new Promise(res => setTimeout(res, 3000))
+      }
+      if (alive) history.replaceState(null, '', location.pathname)
+    })()
+    return () => { alive = false }
+  }, [acc, account?.email, account?.paid]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const onLogo = (f?: File) => {
     if (!f) return
@@ -243,6 +266,7 @@ export default function App() {
         </div>
 
         <div className={'view ' + (tab === 'apercu' ? '' : 'hide-mobile')}>
+          {notice && <p className="note">{notice}</p>}
           {error && <p className="error">{error}</p>}
           <Suspense fallback={<p className="hint">Chargement de l’aperçu…</p>}><Preview layout={layout} /></Suspense>
         </div>

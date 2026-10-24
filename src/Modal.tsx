@@ -43,6 +43,14 @@ export default function Modal({ kind, acc, onClose, onDone }: Props) {
             )}
           </>
         ) : (
+          acc.CINETPAY ? (
+            <>
+              <h2>Accès à vie : 1 000 F</h2>
+              <p>Ton premier document est téléchargé. Pour en faire autant que tu veux, paie <b>une seule fois 1 000 F</b>, c’est valable à vie.</p>
+              <p>Tu choisis ton moyen de paiement sur la page sécurisée. Ton accès s’active tout seul dès que le paiement est confirmé, sans rien copier ni coller.</p>
+              <button className="btn" disabled={busy} onClick={() => run(async () => { const r = await acc.startPay(); location.href = r.paymentUrl })}>{busy ? 'Ouverture…' : 'Payer 1 000 F'}</button>
+            </>
+          ) : (
           <>
             <h2>Accès à vie : 1 000 F</h2>
             <p>Ton premier document est téléchargé. Pour en faire autant que tu veux, paie <b>une seule fois 1 000 F</b>, c’est valable à vie.</p>
@@ -62,6 +70,7 @@ export default function Modal({ kind, acc, onClose, onDone }: Props) {
               <button className="btn" disabled={busy}>{busy ? 'Vérification…' : 'Activer mon accès à vie'}</button>
             </form>
           </>
+          )
         )}
         {err && <p className="error">{err}</p>}
       </div>
