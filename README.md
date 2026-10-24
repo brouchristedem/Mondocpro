@@ -8,10 +8,11 @@ Texte collé → document Word (et PDF) prêt à rendre : page de garde, sommair
 
 ## Paiement : comment l'accès à vie est activé
 
-Un ID de transaction collé par le client **n'active jamais l'accès tout seul** (n'importe qui pouvait en inventer un). Deux modes :
+Parcours Wave comme MON CV PRO CI : le client paie par Wave, copie l'ID de transaction (`T_…`) et le colle sur le site. Réglages (variables Vercel, serveur uniquement, toutes facultatives) :
 
-1. **Validation manuelle (mode actuel).** Le client colle son ID `T_…` : la demande passe « en attente » (`txids/<ID>` avec `status: pending`, et `users/<uid>.pendingTxid`). Tu ouvres ton compte Wave Business, tu vérifies que l'ID existe et que le montant est de 1 000 F, puis dans la console Firebase > Firestore tu mets `paid: true` dans `users/<uid>` (et `status: "verified"` dans `txids/<ID>`). Le site détecte le changement en direct : la fenêtre se ferme et le téléchargement reprend.
-2. **Automatique.** Brancher une vérification auprès du prestataire : passer une fonction `verify(txid)` à `handle()` dans `api/claim.ts` (elle renvoie `{ amount, currency }` du paiement réussi, ou `null`). Le code vérifie alors le montant (≥ 1 000 F, en XOF), refuse un ID déjà utilisé et n'active que sur preuve. Le plus simple est de réutiliser l'intégration CinetPay de Moncvproci (webhook vérifié côté serveur).
+- **`WAVE_TXID_MODE`** — par défaut (variable absente), un ID au bon format **active l'accès tout de suite, sans preuve de paiement** : n'importe qui peut inventer un ID valide. Un ID ne sert qu'à un seul compte et chaque compte a 10 essais au plus, mais ce n'est pas une vérification. Mets `WAVE_TXID_MODE=manual` pour que l'ID soit seulement mis « en attente » (`txids/<ID>` avec `status: pending`) : tu vérifies alors le paiement dans Wave Business et tu mets `paid: true` dans `users/<uid>` (console Firebase > Firestore) ; le site détecte le changement et reprend le téléchargement.
+- **`FREE_EMAILS`** — comptes qui téléchargent toujours gratuitement, sans limite, séparés par des virgules. Par défaut : `brouchristedem@gmail.com`. L'adresse vient du jeton Firebase (e-mail vérifié), pas du navigateur.
+- Pour une vraie vérification automatique plus tard : passer une fonction `verify(txid)` à `handle()` dans `api/claim.ts` (elle renvoie `{ amount, currency }` du paiement réussi, ou `null`).
 
 Limites connues : le Word est fabriqué dans le navigateur, donc le blocage « premier document gratuit » reste contournable par un utilisateur technique (le serveur plafonne les retéléchargements à 8 par compte). Seule une génération du fichier côté serveur le rendrait étanche.
 - `firestore.rules` : règles à publier dans la console Firebase.

@@ -78,4 +78,30 @@ const T1 = 'T_ABCDEFGH12345678', T2 = 'T_ZZZZZZZZ99999999'
   assert.equal(r.status, 502)
   assert.equal(down.store.get('users/u9')?.paid, undefined)
 }
+/* ---------- mode « ID Wave de confiance » (comme MON CV PRO CI) : activation immédiate ---------- */
+{
+  const db = fake()
+  const o: Options = { trustTxid: true }
+  const h = (uid: string, txid: string) => handle(db, uid, `${uid}@x.ci`, { action: 'activate', txid }, o)
+  assert.equal((await h('u1', 'abc')).status, 400) // le format reste contrôlé
+  assert.equal((await h('u1', T1)).status, 200)
+  assert.equal(db.store.get('users/u1')?.paid, true)
+  assert.equal((await h('u2', T1)).status, 409) // un ID ne sert qu'à un seul compte
+  assert.equal((await h('u2', T2)).status, 200)
+  let last = 0
+  for (let i = 0; i < 12; i++) last = (await h('u3', `T_BBBBBBBB${String(10000000 + i)}`)).status
+  assert.equal(last, 200) // le 1er ID valide active (la limite d'essais ne gêne pas un vrai client)
+}
+
+/* ---------- compte propriétaire : toujours gratuit ---------- */
+{
+  const db = fake()
+  const o: Options = { freeEmails: ['Brouchristedem@Gmail.com'] }
+  for (let i = 0; i < 30; i++) assert.equal((await handle(db, 'owner', 'brouchristedem@gmail.com', { action: 'download', docId: `d${i}` }, o)).status, 200) // documents différents, sans limite
+  assert.equal(db.store.get('users/owner')?.freeDocId, undefined, 'rien n’est consommé')
+  assert.equal((await handle(db, 'x', 'autre@gmail.com', { action: 'download', docId: 'd1' }, o)).status, 200)
+  assert.equal((await handle(db, 'x', 'autre@gmail.com', { action: 'download', docId: 'd2' }, o)).status, 402) // les autres restent limités
+  assert.equal((await handle(db, 'y', undefined, { action: 'download', docId: 'd1' }, { freeEmails: [''] })).status, 200)
+  assert.equal((await handle(db, 'y', undefined, { action: 'download', docId: 'd2' }, { freeEmails: [''] })).status, 402)
+}
 console.log('logique serveur : OK')

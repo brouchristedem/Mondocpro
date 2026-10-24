@@ -19,6 +19,14 @@ export interface Options {
   price?: number // prix minimum en F CFA (1 000)
   maxTries?: number // tentatives d'activation par compte
   maxFree?: number // téléchargements du 1er document gratuit (Word + PDF + retouches)
+  /** Comptes (adresses e-mail vérifiées) qui téléchargent toujours gratuitement : le propriétaire du site. */
+  freeEmails?: string[]
+  /**
+   * Mode MON CV PRO CI : un ID Wave au bon format active l'accès tout de suite, sans vérifier le paiement.
+   * RISQUÉ : n'importe qui peut inventer un ID valide. Un même ID ne sert qu'à un seul compte et
+   * le nombre d'essais par compte est plafonné, mais cela ne prouve rien. Sans cette option : mise en attente (202).
+   */
+  trustTxid?: boolean
 }
 
 // Même format que MON CV PRO CI : T_ suivi de 16 caractères
@@ -31,6 +39,8 @@ export async function handle(db: Db, uid: string, email: string | undefined, b: 
   const userRef = db.doc(`users/${uid}`)
 
   if (b.action === 'download') {
+    // propriétaire du site : toujours gratuit (l'adresse vient du jeton Firebase, vérifiée côté serveur)
+    if (email && (o.freeEmails ?? []).some(e => e.trim().toLowerCase() === email.toLowerCase())) return ok({ free: true, owner: true })
     const docId = typeof b.docId === 'string' ? b.docId.slice(0, 64) : ''
     if (!docId) return fail(400, 'bad_request')
     return db.runTransaction(async tx => {
@@ -87,7 +97,21 @@ export async function handle(db: Db, uid: string, email: string | undefined, b: 
       })
     }
 
-    // 2b) sans vérificateur : jamais d'activation automatique. La demande attend la validation du propriétaire.
+    // 2b) mode « ID Wave de confiance » (comme MON CV PRO CI) : activation immédiate, sans preuve de paiement
+    if (o.trustTxid) {
+      return db.runTransaction(async tx => {
+        const used = await tx.get(txRef)
+        const u = (await tx.get(userRef)).data() ?? {}
+        if (u.paid) return ok({ paid: true })
+        if (used.exists) return fail(409, 'txid_used')
+        const at = Date.now()
+        tx.set(txRef, { uid, email: email ?? null, at, status: 'trusted' })
+        tx.set(userRef, { paid: true, paidAt: at, txid, email: email ?? null }, { merge: true })
+        return ok({ paid: true })
+      })
+    }
+
+    // 2c) sans vérificateur ni confiance : jamais d'activation automatique. La demande attend la validation du propriétaire.
     return db.runTransaction(async tx => {
       const used = await tx.get(txRef)
       const u = (await tx.get(userRef)).data() ?? {}
