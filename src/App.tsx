@@ -6,7 +6,11 @@ import { DEFAULTS, DEFAULT_PRESET, PRESETS, type Block, type Cover, type PresetK
 import { clearTombs, currentId, dropLocal, fromCloud, getDoc, listDocs, nameFor, newId, removeDoc, saveDoc, setCurrent, tombs, type Doc } from './storage'
 import { deletedMarker, planSync, toCloud } from './sync'
 import { useInstall } from './install'
+import ContactFab from './ContactFab'
+import { PHONE_SHOW, TEL_URL, WA_URL } from './contact'
 
+const AdminDialog = lazy(() => import('./AdminDialog'))
+const ADMIN_EMAILS = ((import.meta.env.VITE_ADMIN_EMAILS as string | undefined) ?? 'brouchristedem@gmail.com').split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
 const Preview = lazy(() => import('./Preview'))
 const DownloadDialog = lazy(() => import('./DownloadDialog'))
 const LibraryDialog = lazy(() => import('./LibraryDialog'))
@@ -58,7 +62,8 @@ export default function App() {
   const [layout, setLayout] = useState<Layout | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [dialog, setDialog] = useState<null | 'download' | 'library' | 'login'>(null)
+  const [dialog, setDialog] = useState<null | 'download' | 'library' | 'login' | 'admin'>(null)
+  const [users, setUsers] = useState<number | null>(null)
   const [saved, setSaved] = useState<'idle' | 'saving' | 'saved' | 'error'>(init.text.trim() ? 'saved' : 'idle')
   const [docs, setDocs] = useState<Doc[]>(() => listDocs())
   const [toast, setToast] = useState('')
@@ -71,6 +76,7 @@ export default function App() {
   const syncing = useRef(false)
   const pushT = useRef<number>(0)
   const uid = account?.uid
+  const isAdmin = !!account?.email && ADMIN_EMAILS.includes(account.email.toLowerCase()) // simple affichage du bouton : l'accès réel est vérifié côté serveur
   const taRef = useRef<HTMLTextAreaElement>(null)
   const atelierRef = useRef<HTMLElement>(null)
   const [inView, setInView] = useState(false)
@@ -99,6 +105,15 @@ export default function App() {
     const t = setTimeout(() => { makeLayout(blocks, sEff).then(l => { setLayout(l); setError('') }).catch(e => setError(String(e.message || e))) }, 400)
     return () => clearTimeout(t)
   }, [blocks, sEff, empty])
+
+  // nombre d'utilisateurs : affiché seulement si le propriétaire l'a activé dans l'espace admin
+  useEffect(() => {
+    if (install.installed) return
+    fetch((import.meta.env.VITE_API_URL || '') + '/api/stats')
+      .then(r => (r.ok ? r.json() : null))
+      .then(b => { if (b && typeof b.count === 'number') setUsers(b.count) })
+      .catch(() => {})
+  }, [install.installed])
 
   // les boutons Enregistrer / Télécharger ne s'affichent que sur l'atelier (pas sur l'accueil)
   useEffect(() => {
@@ -286,7 +301,7 @@ export default function App() {
           <h1>Colle ton texte.<br /><em>Récupère un Word impeccable.</em></h1>
           <p className="lead">Titres, sommaire, pagination et tableaux se mettent en page tout seuls.</p>
           <a className="btn big" href="#atelier">Mettre mon texte en page</a>
-          <ul className="proof"><li>Sans inscription</li><li>Word et PDF</li><li>Sur téléphone</li></ul>
+          <ul className="proof"><li>Sans inscription</li><li>Word et PDF</li><li>Sur téléphone</li>{users !== null && <li>{users.toLocaleString('fr-FR')} utilisateur{users > 1 ? 's' : ''} inscrit{users > 1 ? 's' : ''}</li>}</ul>
 
           <div className="demo" aria-hidden="true">
             <figure className="raw">
@@ -475,12 +490,17 @@ export default function App() {
             <details><summary>Comment sont reconnus les tableaux ?</summary><p>Copie-les depuis Word, Excel ou un PDF, puis colle-les dans ton texte. Ajoute « Tableau : titre » juste avant pour la légende.</p></details>
             <details><summary>Où sont mes documents ?</summary><p>Enregistrés automatiquement sur ton appareil, dans « Mes documents ». Connecte-toi pour les retrouver sur tous tes appareils.</p></details>
           </section>
-          <footer className="foot">mondocpro · fait en Côte d’Ivoire</footer>
+          <footer className="foot">
+            <p className="contact">Service client : <a href={TEL_URL}>{PHONE_SHOW}</a> · <a href={WA_URL} target="_blank" rel="noopener noreferrer">WhatsApp</a></p>
+            mondocpro · fait en Côte d’Ivoire
+          </footer>
         </>
       )}
 
       {dialog === 'download' && <Suspense fallback={null}><DownloadDialog defaultName={docName === 'Sans titre' ? 'document' : docName} pages={pages} busy={busy} error={error} onPick={download} onClose={() => setDialog(null)} /></Suspense>}
-      {dialog === 'library' && <Suspense fallback={null}><LibraryDialog docs={docs} currentId={docId} onOpen={load} onDelete={removeOne} onNew={newDoc} onClose={() => setDialog(null)} account={HAS_BACKEND ? (account ? { email: account.email } : null) : undefined} syncLabel={syncLabel} onLogin={openLogin} onLogout={logout} /></Suspense>}
+      {dialog === 'library' && <Suspense fallback={null}><LibraryDialog docs={docs} currentId={docId} onOpen={load} onDelete={removeOne} onNew={newDoc} onClose={() => setDialog(null)} account={HAS_BACKEND ? (account ? { email: account.email } : null) : undefined} syncLabel={syncLabel} onLogin={openLogin} onLogout={logout} onAdmin={isAdmin ? () => setDialog('admin') : undefined} /></Suspense>}
+      {dialog === 'admin' && acc && isAdmin && <Suspense fallback={null}><AdminDialog acc={acc} onClose={() => setDialog(null)} /></Suspense>}
+      <ContactFab />
       {dialog === 'login' && acc && <Suspense fallback={null}><LoginDialog acc={acc} onClose={() => setDialog(null)} /></Suspense>}
       {toast && <div className="toast" role="status">{toast}</div>}
     </>

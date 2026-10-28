@@ -5,6 +5,8 @@ interface Props {
   docs: Doc[]; currentId: string; onOpen: (d: Doc) => void; onDelete: (id: string) => void; onNew: () => void; onClose: () => void
   /** compte : null = non connecté ; undefined = connexion non disponible */
   account?: { email: string | null } | null; syncLabel?: string; onLogin?: () => void; onLogout?: () => void
+  /** présent seulement pour le propriétaire */
+  onAdmin?: () => void
 }
 
 const ago = (t: number) => {
@@ -18,7 +20,7 @@ const ago = (t: number) => {
 }
 
 /** « Mes documents » : les documents enregistrés sur cet appareil. */
-export default function LibraryDialog({ docs, currentId, onOpen, onDelete, onNew, onClose, account, syncLabel, onLogin, onLogout }: Props) {
+export default function LibraryDialog({ docs, currentId, onOpen, onDelete, onNew, onClose, account, syncLabel, onLogin, onLogout, onAdmin }: Props) {
   const [ask, setAsk] = useState('')
   return (
     <div className="scrim" onClick={onClose}>
@@ -29,7 +31,7 @@ export default function LibraryDialog({ docs, currentId, onOpen, onDelete, onNew
           <div className="acct"><p>Connecte-toi pour retrouver tes documents sur tous tes appareils.</p><button className="btn small" onClick={onLogin}>Se connecter</button></div>
         )}
         {account && (
-          <div className="acct on"><p><b>Connecté</b>{account.email ? ` : ${account.email}` : ''}{syncLabel ? ` · ${syncLabel}` : ''}</p>{onLogout && <button className="link" onClick={onLogout}>Se déconnecter</button>}</div>
+          <div className="acct on"><p><b>Connecté</b>{account.email ? ` : ${account.email}` : ''}{syncLabel ? ` · ${syncLabel}` : ''}</p>{onAdmin && <button className="btn small" onClick={onAdmin}>Espace admin</button>}{onLogout && <button className="link" onClick={onLogout}>Se déconnecter</button>}</div>
         )}
         {docs.length === 0 ? <p>Rien pour l’instant. Ton travail est enregistré automatiquement dès que tu colles du texte.</p> : (
           <ul className="docs">

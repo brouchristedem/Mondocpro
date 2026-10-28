@@ -68,6 +68,18 @@ export async function claim(action: 'download' | 'activate', payload: Record<str
   return { status: r.status, error: (body.error as string | undefined) ?? '' }
 }
 
+/** Espace admin (réservé au propriétaire, vérifié côté serveur). */
+export interface AdminState { total: number; today: number; week: number; showUserCount: boolean }
+export async function admin(payload: { action: 'stats' } | { action: 'set'; showUserCount: boolean }): Promise<{ status: number; state?: AdminState }> {
+  const token = await auth.currentUser?.getIdToken()
+  const r = await fetch((env.VITE_API_URL || '') + '/api/admin', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload),
+  })
+  const body = await r.json().catch(() => ({}))
+  return { status: r.status, state: r.ok ? (body as AdminState) : undefined }
+}
+
 /** Documents du compte : users/{uid}/docs/{id}. */
 export type { CloudDoc }
 export async function listCloudDocs(uid: string): Promise<CloudDoc[]> {

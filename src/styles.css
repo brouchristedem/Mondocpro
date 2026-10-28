@@ -186,3 +186,13 @@ code { background: #EEF2FD; padding: 1px 6px; border-radius: 6px; }
 .acct { background: var(--bg); border: 1px solid var(--line); border-radius: 14px; padding: 12px; display: grid; gap: 8px; justify-items: center; }
 .acct p { font-size: 14px; }
 .acct.on p { color: var(--navy); }
+
+.wa-fab { position: fixed; right: 14px; bottom: calc(84px + env(safe-area-inset-bottom)); z-index: 8; width: 54px; height: 54px; border-radius: 50%; background: #25D366; display: grid; place-items: center; box-shadow: 0 8px 22px rgba(15, 30, 74, .3); }
+.wa-fab:active { transform: scale(.96); }
+.foot a { color: var(--blue); font-weight: 700; text-decoration: none; }
+.foot .contact { margin: 0 0 8px; }
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.stats div { background: var(--bg); border: 1px solid var(--line); border-radius: 14px; padding: 12px 6px; display: grid; gap: 2px; }
+.stats b { font-size: 26px; color: var(--navy); }
+.stats span { font-size: 12px; color: var(--muted); }
+.modal .check { text-align: left; }
