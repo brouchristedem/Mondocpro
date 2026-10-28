@@ -48,14 +48,14 @@ export const DEFAULTS: Settings = {
   numAlign: 'center',
   headerText: '',
   toc: true,
-  tablesList: true,
+  tablesList: false,
   romanPrelim: false,
-  chapterBreak: true,
+  chapterBreak: false,
   landscape: true,
   cover: {
-    enabled: true,
+    enabled: false,
     school: '',
-    kind: 'MÉMOIRE DE FIN D’ÉTUDES',
+    kind: '',
     title: '',
     author: '',
     supervisor: '',
@@ -63,9 +63,13 @@ export const DEFAULTS: Settings = {
   },
 }
 
+/** Modèles : un seul geste règle tout (page de garde, sommaire, sauts de page). */
 export const PRESETS = {
-  memoire: { label: 'Mémoire', kind: 'MÉMOIRE DE FIN D’ÉTUDES', chapterBreak: true, tablesList: true },
-  rapport: { label: 'Rapport de stage', kind: 'RAPPORT DE STAGE', chapterBreak: false, tablesList: false },
-  libre: { label: 'Document libre', kind: '', chapterBreak: false, tablesList: false },
+  complet: { label: 'Complet', hint: 'Page de garde, sommaire, liste des tableaux, chaque titre principal sur une nouvelle page.', cover: true, toc: true, chapterBreak: true, tablesList: true },
+  standard: { label: 'Standard', hint: 'Sommaire automatique et pagination, sans page de garde.', cover: false, toc: true, chapterBreak: false, tablesList: false },
+  simple: { label: 'Simple', hint: 'Ton texte, bien présenté, avec les numéros de page.', cover: false, toc: false, chapterBreak: false, tablesList: false },
 } as const
 export type PresetKey = keyof typeof PRESETS
+export const DEFAULT_PRESET: PresetKey = 'standard'
+/** Anciens noms de modèles (versions précédentes du site). */
+export const LEGACY_PRESETS: Record<string, PresetKey> = { memoire: 'complet', rapport: 'standard', libre: 'simple' }

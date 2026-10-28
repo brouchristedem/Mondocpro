@@ -1,15 +1,16 @@
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { extractCover } from './lib/cover'
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { parse } from './lib/parse'
 import type { Layout } from './lib/layout'
-import { DEFAULTS, PRESETS, type Block, type PresetKey, type Settings, type Cover } from './lib/types'
-import { SAMPLE } from './sample'
+import { DEFAULTS, DEFAULT_PRESET, PRESETS, type Block, type Cover, type PresetKey, type Settings } from './lib/types'
+import { currentId, getDoc, listDocs, nameFor, newId, removeDoc, saveDoc, setCurrent, type Doc } from './storage'
+import { useInstall } from './install'
 
 const Preview = lazy(() => import('./Preview'))
-const Modal = lazy(() => import('./Modal'))
-type Acc = typeof import('./account')
-const HAS_BACKEND = !!import.meta.env.VITE_FIREBASE_API_KEY
-const newId = () => crypto.randomUUID()
+const DownloadDialog = lazy(() => import('./DownloadDialog'))
+const LibraryDialog = lazy(() => import('./LibraryDialog'))
+const PDF_URL = import.meta.env.VITE_PDF_URL as string | undefined
+
 const makeLayout = (...a: Parameters<typeof import('./lib/layout').layoutDocument>) => import('./lib/layout').then(m => m.layoutDocument(...a))
 /** Word final : on calcule d'abord les pages, puis on écrit les numéros dans le sommaire. */
 async function makeDocx(blocks: Block[], s: Settings): Promise<Blob> {
@@ -19,24 +20,15 @@ async function makeDocx(blocks: Block[], s: Settings): Promise<Blob> {
 
 type Tab = 'texte' | 'garde' | 'reglages' | 'apercu'
 const TABS: [Tab, string][] = [['texte', 'Texte'], ['garde', 'Page de garde'], ['reglages', 'Réglages'], ['apercu', 'Aperçu']]
-const KEY = 'mondocpro:v1'
-const PDF_URL = import.meta.env.VITE_PDF_URL as string | undefined
 
-function load(): { text: string; s: Settings; preset: PresetKey; docId: string; updatedAt: number } {
-  try {
-    const d = JSON.parse(localStorage.getItem(KEY) || '')
-    return { text: d.text, s: { ...DEFAULTS, ...d.s, cover: { ...DEFAULTS.cover, ...d.s.cover } }, preset: d.preset, docId: d.docId || newId(), updatedAt: Number(d.updatedAt) || 0 }
-  } catch { return { text: SAMPLE, s: DEFAULTS, preset: 'memoire', docId: newId(), updatedAt: 0 } }
-}
-
-const Logo = () => (
-  <svg width="30" height="30" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="16" fill="#2457D6" /><path d="M20 12h17l9 9v31a2 2 0 0 1-2 2H20a2 2 0 0 1-2-2V14a2 2 0 0 1 2-2z" fill="none" stroke="#fff" strokeWidth="3" strokeLinejoin="round" /><path d="M37 12v9h9" fill="none" stroke="#FFC94A" strokeWidth="3" strokeLinejoin="round" /><path d="M24 32h16M24 38h16M24 44h9" stroke="#fff" strokeWidth="3" strokeLinecap="round" /></svg>
+const Logo = ({ size = 30 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="16" fill="#2457D6" /><path d="M20 12h17l9 9v31a2 2 0 0 1-2 2H20a2 2 0 0 1-2-2V14a2 2 0 0 1 2-2z" fill="none" stroke="#fff" strokeWidth="3" strokeLinejoin="round" /><path d="M37 12v9h9" fill="none" stroke="#FFC94A" strokeWidth="3" strokeLinejoin="round" /><path d="M24 32h16M24 38h16M24 44h9" stroke="#fff" strokeWidth="3" strokeLinecap="round" /></svg>
 )
 
-function Check({ label, hint, checked, onChange }: { label: string; hint?: string; checked: boolean; onChange: (v: boolean) => void }) {
+function Check({ label, hint, checked, disabled, onChange }: { label: string; hint?: string; checked: boolean; disabled?: boolean; onChange: (v: boolean) => void }) {
   return (
     <label className="check">
-      <input type="checkbox" checked={checked} onChange={e => onChange(e.target.checked)} />
+      <input type="checkbox" checked={checked} disabled={disabled} onChange={e => onChange(e.target.checked)} />
       <span><b>{label}</b>{hint && <small>{hint}</small>}</span>
     </label>
   )
@@ -45,8 +37,15 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   return <label className="field"><span>{label}</span>{children}</label>
 }
 
+const blank = (): Doc => ({ id: newId(), name: 'Sans titre', text: '', s: DEFAULTS, preset: DEFAULT_PRESET, updatedAt: 0 })
+
 export default function App() {
-  const init = useMemo(load, [])
+  const init = useMemo<Doc>(() => {
+    listDocs()
+    const id = currentId()
+    return (id && getDoc(id)) || blank()
+  }, [])
+  const [docId, setDocId] = useState(init.id)
   const [text, setText] = useState(init.text)
   const [s, setS] = useState<Settings>(init.s)
   const [preset, setPreset] = useState<PresetKey>(init.preset)
@@ -54,186 +53,191 @@ export default function App() {
   const [layout, setLayout] = useState<Layout | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [docId, setDocId] = useState(init.docId)
-  const [acc, setAcc] = useState<Acc | null>(null)
-  const [account, setAccount] = useState<import('./account').Account | null>(null)
-  const [modal, setModal] = useState<null | 'login' | 'pay'>(null)
-  const [pending, setPending] = useState<boolean | null>(null)
-  // synchronisation avec le compte : « stamp » = date de la dernière modification faite par l'utilisateur (0 = jamais depuis la mise en place)
-  const stamp = useRef(init.updatedAt)
-  const snap = useRef(JSON.stringify({ text: init.text, s: init.s, preset: init.preset, docId: init.docId }))
-  const pushed = useRef(0)
-  const [synced, setSynced] = useState(false)
-  const cur = useRef({ text, s, preset, docId })
-  cur.current = { text, s, preset, docId }
-  const uid = account?.uid
-  const accountRef = useRef(account)
-  accountRef.current = account
+  const [dialog, setDialog] = useState<null | 'download' | 'library'>(null)
+  const [saved, setSaved] = useState<'idle' | 'saving' | 'saved' | 'error'>(init.text.trim() ? 'saved' : 'idle')
+  const [docs, setDocs] = useState<Doc[]>(() => listDocs())
+  const [toast, setToast] = useState('')
+  const install = useInstall()
+  const taRef = useRef<HTMLTextAreaElement>(null)
+  const atelierRef = useRef<HTMLElement>(null)
+  const [inView, setInView] = useState(false)
+  const toastT = useRef<number>(0)
+
+  const say = useCallback((m: string) => {
+    setToast(m); window.clearTimeout(toastT.current); toastT.current = window.setTimeout(() => setToast(''), 3200)
+  }, [])
 
   const set = (p: Partial<Settings>) => setS(v => ({ ...v, ...p }))
   const setCover = (p: Partial<Cover>) => setS(v => ({ ...v, cover: { ...v.cover, ...p } }))
   const meta = useMemo(() => extractCover(text), [text])
   const blocks = useMemo(() => parse(meta.body), [meta])
   const found = meta.cover
-  const sEff = useMemo<Settings>(() => ({ ...s, cover: { ...s.cover, ...found } }), [s, found])
+  const hasFound = Object.keys(found).length > 0
+  const sEff = useMemo<Settings>(() => ({ ...s, cover: { ...s.cover, ...found, enabled: s.cover.enabled || hasFound } }), [s, found, hasFound])
+  const empty = !text.trim()
+  const heads = blocks.filter(b => b.t === 'h').length
+  const tables = blocks.filter(b => b.t === 'table').length
+  const firstHead = blocks.find((b): b is Extract<Block, { t: 'h' }> => b.t === 'h')?.text
+  const docName = useMemo(() => nameFor(text, sEff.cover.title, firstHead), [text, sEff.cover.title, firstHead])
 
+  // pages : recalculées 0,4 s après la dernière frappe
   useEffect(() => {
-    if (!HAS_BACKEND) return
-    let stop = () => {}, alive = true
-    import('./account').then(async m => {
-      if (!alive) return
-      setAcc(m)
-      await m.finishLink().catch(() => {})
-      stop = m.watch(setAccount)
-    })
-    return () => { alive = false; stop() }
+    if (empty) { setLayout(null); setError(''); return }
+    const t = setTimeout(() => { makeLayout(blocks, sEff).then(l => { setLayout(l); setError('') }).catch(e => setError(String(e.message || e))) }, 400)
+    return () => clearTimeout(t)
+  }, [blocks, sEff, empty])
+
+  // les boutons Enregistrer / Télécharger ne s'affichent que sur l'atelier (pas sur l'accueil)
+  useEffect(() => {
+    const el = atelierRef.current
+    if (!el || !('IntersectionObserver' in window)) { setInView(true); return }
+    const io = new IntersectionObserver(([e]) => setInView(e.isIntersecting), { threshold: 0.05 })
+    io.observe(el)
+    return () => io.disconnect()
   }, [])
 
+  // enregistrement automatique (dans cet appareil)
+  const persist = useCallback((): boolean => {
+    if (!text.trim()) return true
+    const ok = saveDoc({ id: docId, name: docName, text, s, preset, updatedAt: Date.now() })
+    if (ok) { setCurrent(docId); setDocs(listDocs()) }
+    setSaved(ok ? 'saved' : 'error')
+    return ok
+  }, [docId, docName, text, s, preset])
+  const firstRun = useRef(true)
   useEffect(() => {
-    const t = setTimeout(() => {
-      makeLayout(blocks, sEff).then(l => { setLayout(l); setError('') }).catch(e => setError(String(e.message || e)))
-      const now = JSON.stringify({ text, s, preset, docId })
-      if (now !== snap.current) { snap.current = now; stamp.current = Date.now() }
-      try { localStorage.setItem(KEY, JSON.stringify({ text, s, preset, docId, updatedAt: stamp.current })) } catch { /* quota */ }
-    }, 400)
+    if (firstRun.current) { firstRun.current = false; return }
+    if (!text.trim()) { setSaved('idle'); return }
+    setSaved('saving')
+    const t = setTimeout(persist, 700)
     return () => clearTimeout(t)
-  }, [blocks, s, sEff, text, preset, docId])
+  }, [text, s, preset, persist])
 
-  /** Texte + réglages prêts à être envoyés ; le logo (souvent lourd) est laissé de côté s'il ferait dépasser la limite de Firestore (1 Mo). */
-  const pack = (at: number, docIdOverride?: string) => {
-    const c = cur.current
-    let sj = JSON.stringify(c.s)
-    if (sj.length > 250_000 || c.text.length + sj.length > 800_000) sj = JSON.stringify({ ...c.s, cover: { ...c.s.cover, logo: undefined } })
-    return { text: c.text, s: sj, preset: c.preset, docId: docIdOverride ?? c.docId, updatedAt: at }
-  }
-  const adopt = (r: import('./account').Draft) => {
-    const c = cur.current
-    // filet de sécurité : le brouillon remplacé reste récupérable dans ce navigateur
-    if (c.text.trim() && c.text !== r.text) try { localStorage.setItem(KEY + ':sauvegarde', JSON.stringify({ ...c, at: Date.now() })) } catch { /* quota */ }
-    try {
-      const rs = JSON.parse(r.s)
-      const logo = rs.cover?.logo ?? c.s.cover.logo
-      const next: Settings = { ...DEFAULTS, ...rs, cover: { ...DEFAULTS.cover, ...rs.cover, logo } }
-      snap.current = JSON.stringify({ text: r.text, s: next, preset: r.preset, docId: r.docId })
-      stamp.current = r.updatedAt
-      pushed.current = r.updatedAt
-      setText(r.text); setS(next); setPreset((r.preset as PresetKey) in PRESETS ? (r.preset as PresetKey) : 'memoire'); setDocId(r.docId)
-    } catch { /* brouillon illisible : on garde le local */ }
-  }
-  // à la connexion, puis à chaque retour sur l'onglet : on récupère le brouillon du compte s'il est plus récent
+  // hors connexion : on charge à l'avance les morceaux utilisés pour l'aperçu et le Word
   useEffect(() => {
-    if (!acc || !uid) { setSynced(false); return }
-    let alive = true
-    const pull = async (first: boolean) => {
-      const r = await acc.loadDraft(uid).catch(() => undefined)
-      if (!alive || r === undefined) return // erreur réseau : on ne touche à rien
-      if (r && r.updatedAt > stamp.current) adopt(r)
-      else if (r && stamp.current > Math.max(r.updatedAt, pushed.current)) {
-        // le brouillon de cet appareil est plus récent que celui du compte : on l'envoie
-        const at = stamp.current
-        acc.saveDraft(uid, pack(at)).then(() => { pushed.current = Math.max(pushed.current, at) }).catch(() => {})
-      } else if (first && !r) {
-        // 1re synchronisation de ce compte : on envoie le brouillon local, avec le document gratuit déjà connu du serveur s'il existe
-        if (!stamp.current) stamp.current = Date.now()
-        for (let i = 0; i < 20 && alive && !accountRef.current?.loaded; i++) await new Promise(res => setTimeout(res, 150))
-        const id = accountRef.current?.freeDocId || cur.current.docId
-        if (id !== cur.current.docId) setDocId(id)
-        const at = stamp.current
-        acc.saveDraft(uid, pack(at, id)).then(() => { pushed.current = Math.max(pushed.current, at) }).catch(() => {})
-      }
-      if (first && alive) setSynced(true)
-    }
-    pull(true)
-    const onVis = () => { if (document.visibilityState === 'visible') pull(false) }
-    document.addEventListener('visibilitychange', onVis)
-    return () => { alive = false; document.removeEventListener('visibilitychange', onVis) }
-  }, [acc, uid]) // eslint-disable-line react-hooks/exhaustive-deps
-  // ensuite, chaque modification est envoyée au compte (au plus une fois toutes les 2 s)
-  useEffect(() => {
-    if (!acc || !uid || !synced) return
-    const t = setTimeout(() => {
-      const at = stamp.current
-      if (at <= pushed.current) return
-      acc.saveDraft(uid, pack(at)).then(() => { pushed.current = Math.max(pushed.current, at) }).catch(() => {})
-    }, 2000)
-    return () => clearTimeout(t)
-  }, [text, s, preset, docId, acc, uid, synced]) // eslint-disable-line react-hooks/exhaustive-deps
+    const idle = (window as unknown as { requestIdleCallback?: (f: () => void) => void }).requestIdleCallback ?? ((f: () => void) => setTimeout(f, 2500))
+    idle(() => { import('./lib/layout'); import('./lib/build'); import('./Preview'); import('./DownloadDialog'); import('./LibraryDialog') })
+  }, [])
+
+  const load = (d: Doc) => {
+    setDocId(d.id); setText(d.text); setS(d.s); setPreset(d.preset); setTab('texte'); setDialog(null); setCurrent(d.id)
+    setSaved(d.text.trim() ? 'saved' : 'idle'); firstRun.current = true
+    document.getElementById('atelier')?.scrollIntoView()
+  }
+  const newDoc = () => {
+    persist()
+    const d = blank(); load(d); setTimeout(() => taRef.current?.focus(), 50)
+  }
 
   const pickPreset = (k: PresetKey) => {
+    const P = PRESETS[k]
     setPreset(k)
-    setS(v => ({ ...v, chapterBreak: PRESETS[k].chapterBreak, tablesList: PRESETS[k].tablesList, cover: { ...v.cover, kind: PRESETS[k].kind } }))
+    setS(v => ({ ...v, toc: P.toc, chapterBreak: P.chapterBreak, tablesList: P.tablesList, cover: { ...v.cover, enabled: P.cover } }))
   }
 
-  const save = (b: Blob, ext: string) => {
+  const paste = async () => {
+    try {
+      const t = await navigator.clipboard.readText()
+      if (!t.trim()) { say('Le presse-papiers est vide : copie d’abord ton texte.'); return }
+      setText(cur => (cur.trim() ? cur.replace(/\s+$/, '') + '\n\n' + t : t))
+      setTab('texte')
+    } catch {
+      taRef.current?.focus()
+      say('Appuie longuement dans la zone, puis choisis « Coller ».')
+    }
+  }
+
+  const save = (b: Blob, ext: string, name: string) => {
     const a = document.createElement('a')
     a.href = URL.createObjectURL(b)
-    a.download = `${(sEff.cover.title || 'document').replace(/[^\p{L}\p{N}]+/gu, '-').slice(0, 50)}.${ext}`
-    a.click()
+    a.download = `${name.replace(/[\\/:*?"<>|]+/g, ' ').trim().slice(0, 80) || 'document'}.${ext}`
+    document.body.appendChild(a); a.click(); a.remove()
     setTimeout(() => URL.revokeObjectURL(a.href), 5000)
   }
-  const download = async (pdf: boolean) => {
-    setError('')
-    if (HAS_BACKEND) {
-      if (!acc || !account) { setPending(pdf); setModal('login'); return }
-      if (!account.paid) {
-        const g = await acc.claim('download', { docId }).catch(() => ({ status: 0, error: '' }))
-        if (g.status === 402) { setPending(pdf); setModal('pay'); return }
-        if (g.status !== 200) { setError('Vérification impossible, réessaie dans un instant.'); return }
-      }
-    }
-    setBusy(true)
+  const download = async (kind: 'docx' | 'pdf', name: string) => {
+    setError(''); setBusy(true)
     try {
-      const docx = await makeDocx(blocks, sEff)
-      if (!pdf) save(docx, 'docx')
-      else {
-        const r = await fetch(PDF_URL!, { method: 'POST', body: docx })
+      persist()
+      if (kind === 'docx') {
+        save(await makeDocx(blocks, sEff), 'docx', name)
+        setDialog(null); say('Ton fichier Word est téléchargé.')
+      } else if (PDF_URL) {
+        const r = await fetch(PDF_URL, { method: 'POST', body: await makeDocx(blocks, sEff) })
         if (!r.ok) throw new Error('Le PDF n’a pas pu être créé. Réessaie dans un instant.')
-        save(await r.blob(), 'pdf')
+        save(await r.blob(), 'pdf', name)
+        setDialog(null); say('Ton PDF est téléchargé.')
+      } else {
+        const lay = await makeLayout(blocks, sEff)
+        const { printPdf } = await import('./print')
+        setDialog(null)
+        await printPdf(lay.pages, name)
       }
-    } catch (e) { setError(String((e as Error).message)) }
+    } catch (e) { setError(String((e as Error).message || e)) }
     setBusy(false)
   }
-  const resume = () => { const p = pending; setModal(null); setPending(null); if (p !== null) setTimeout(() => download(p), 0) }
-  // validation manuelle du paiement : dès que le compte passe « payé », la fenêtre se ferme et le téléchargement reprend
-  useEffect(() => { if (modal === 'pay' && account?.paid) resume() }, [account?.paid, modal]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const onLogo = (f?: File) => {
-    if (!f) return
-    const r = new FileReader()
-    r.onload = () => {
-      const url = String(r.result), img = new Image()
-      if (!/^data:image\/(png|jpe?g)/.test(url)) { setError('Logo : utilise un fichier PNG ou JPG.'); return }
-      img.onload = () => setCover({ logo: { url, w: img.naturalWidth, h: img.naturalHeight } })
-      img.src = url
-    }
-    r.readAsDataURL(f)
+  const savedLabel = saved === 'saving' ? 'Enregistrement…' : saved === 'saved' ? 'Enregistré' : saved === 'error' ? 'Espace plein : télécharge ton fichier' : ''
+  const explicitSave = () => { if (persist()) say('Document enregistré dans « Mes documents ».'); else say('Enregistrement impossible : l’espace de ton navigateur est plein.') }
+  const goInstall = async () => {
+    if (install.canPrompt) { await install.prompt(); return }
+    document.getElementById('installer')?.scrollIntoView({ behavior: 'smooth' })
   }
-
-  const tables = blocks.filter(b => b.t === 'table').length
-  const heads = blocks.filter(b => b.t === 'h').length
+  const pages = layout?.pages.length ?? null
 
   return (
     <>
       <header className="nav">
         <a className="brand" href="#top"><Logo /><span>mondocpro</span></a>
-        {account
-          ? <span className="who">{account.paid && <b>À vie</b>}<span>{account.email}</span><button className="link" onClick={() => acc?.logout()}>Déconnexion</button></span>
-          : <a className="btn small" href="#atelier">Essayer gratuitement</a>}
+        {!install.installed && <button className="nav-btn" onClick={goInstall}>Installer</button>}
       </header>
 
-      <section className="hero" id="top">
-        <h1>Ton mémoire ou rapport de stage, <em>bien mis en page</em> en 5 minutes.</h1>
-        <p>Colle ton texte, choisis tes réglages, télécharge ton fichier Word et ton PDF. Plus besoin de te battre avec Word.</p>
-        <a className="btn" href="#atelier">Essayer gratuitement</a>
-        <p className="muted">1er document gratuit · ensuite 1 000 F une seule fois, à vie</p>
-        <ol className="steps">
-          <li><b>1</b> Colle ton texte</li>
-          <li><b>2</b> Remplis ta page de garde</li>
-          <li><b>3</b> Télécharge Word ou PDF</li>
-        </ol>
-      </section>
+      {!install.installed && (
+        <section className="hero" id="top">
+          <span className="badge">Gratuit pour le moment</span>
+          <h1>Colle ton texte.<br /><em>Récupère un Word impeccable.</em></h1>
+          <p className="lead">Titres, sommaire, pagination et tableaux se mettent en page tout seuls.</p>
+          <a className="btn big" href="#atelier">Mettre mon texte en page</a>
+          <ul className="proof"><li>Sans inscription</li><li>Word et PDF</li><li>Sur téléphone</li></ul>
 
-      <main className="atelier" id="atelier">
+          <div className="demo" aria-hidden="true">
+            <figure className="raw">
+              <figcaption>Ton texte collé</figcaption>
+              <div className="rawtext">
+                <p>CHAPITRE 1 : LE MARCHÉ</p>
+                <p>I. Les chiffres clés</p>
+                <p>Les ventes ont progressé sur toute l’année, portées par la demande locale.</p>
+                <p className="tabs">Produit&nbsp;&nbsp;&nbsp;Ventes&nbsp;&nbsp;&nbsp;Part</p>
+                <p className="tabs">Riz&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;1 200&nbsp;&nbsp;&nbsp;&nbsp;40 %</p>
+                <p className="tabs">Maïs&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;900&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;30 %</p>
+              </div>
+            </figure>
+            <div className="arrow">→</div>
+            <figure className="doc">
+              <figcaption>Ton document prêt</figcaption>
+              <div className="page">
+                <div className="toc-t">SOMMAIRE</div>
+                <div className="toc"><span>CHAPITRE 1 : LE MARCHÉ</span><i /><b>2</b></div>
+                <div className="toc sub"><span>I. Les chiffres clés</span><i /><b>2</b></div>
+                <div className="h">I. Les chiffres clés</div>
+                <div className="line" /><div className="line s" />
+                <div className="cap">Tableau 1 : Ventes par produit</div>
+                <table><tbody><tr><th>Produit</th><th>Ventes</th><th>Part</th></tr><tr><td>Riz</td><td>1 200</td><td>40 %</td></tr><tr><td>Maïs</td><td>900</td><td>30 %</td></tr></tbody></table>
+                <div className="num">2</div>
+              </div>
+            </figure>
+          </div>
+          <p className="fine">Offre de lancement : gratuit pour le moment. Un tarif sera proposé plus tard.</p>
+        </section>
+      )}
+
+      <main className="atelier" id="atelier" ref={atelierRef}>
+        {!install.installed && <h2 className="section-title">Ton document</h2>}
+        <div className="bar">
+          <button className="chipbtn" onClick={() => { setDocs(listDocs()); setDialog('library') }}>Mes documents{docs.length > 0 ? ` · ${docs.length}` : ''}</button>
+          <span className={'status ' + saved} aria-live="polite">{savedLabel}</span>
+          <button className="chipbtn" onClick={newDoc} disabled={empty && !hasFound}>Nouveau</button>
+        </div>
+
         <nav className="tabs" role="tablist">
           {TABS.map(([k, l]) => (
             <button key={k} role="tab" aria-selected={tab === k} className={(tab === k ? 'on ' : '') + (k === 'apercu' ? 'only-mobile' : '')} onClick={() => setTab(k)}>{l}</button>
@@ -243,29 +247,39 @@ export default function App() {
         <div className={'panel ' + (tab === 'apercu' ? 'hide-mobile' : '')}>
           {tab === 'texte' && (
             <>
-              <textarea value={text} onChange={e => setText(e.target.value)} spellCheck={false} aria-label="Ton texte" placeholder="Colle ton texte ici…" />
-              <p className="hint">
-                {heads} titre{heads > 1 ? 's' : ''} détecté{heads > 1 ? 's' : ''} · {tables} tableau{tables > 1 ? 'x' : ''}.
-                Titres : « CHAPITRE 1 », « I. », « A. », « 1.1 » sont reconnus, ou écris <code># Titre</code>, <code>## Sous-titre</code>.
-                Tableau : copie-le depuis Word ou Excel et colle-le ; mets une ligne « Tableau : titre » juste avant pour la légende.
-              </p>
-              <div className="row"><button className="link" onClick={() => setText(SAMPLE)}>Remettre l’exemple</button><button className="link" onClick={() => { setText(''); setDocId(newId()); setCover({ title: '' }) }}>Nouveau document</button></div>
+              <div className="row actions">
+                <button className="btn small" onClick={paste}>Coller mon texte</button>
+                {!empty && <button className="link" onClick={() => { setText(''); setCover({ title: '' }); taRef.current?.focus() }}>Tout effacer</button>}
+              </div>
+              <textarea ref={taRef} value={text} onChange={e => setText(e.target.value)} spellCheck={false} aria-label="Ton texte" placeholder="Colle ton texte ici…" />
+              {empty
+                ? <p className="hint">Copie ton texte depuis Word, un mail, un PDF ou tes notes, puis colle-le ici. Tout le reste est automatique.</p>
+                : <p className="hint found">{heads} titre{heads > 1 ? 's' : ''} · {tables} tableau{tables > 1 ? 'x' : ''}{pages ? ` · ${pages} page${pages > 1 ? 's' : ''}` : ''}</p>}
+              <details className="tips">
+                <summary>Astuces de mise en page</summary>
+                <ul>
+                  <li><b>Titres</b> : « CHAPITRE 1 », « I. », « A. », « 1.1 » sont reconnus. Tu peux aussi écrire <code># Titre</code> et <code>## Sous-titre</code>.</li>
+                  <li><b>Tableaux</b> : copie-les depuis Word, Excel ou un PDF et colle-les. Ajoute « Tableau : titre » juste avant pour la légende.</li>
+                  <li><b>Page de garde</b> : écris « Thème : … », « Présenté par : … » au début, elle se remplit toute seule.</li>
+                  <li><b>Gras</b> : entoure un mot de deux étoiles, <code>**comme ça**</code>.</li>
+                </ul>
+              </details>
             </>
           )}
 
           {tab === 'garde' && (
             <div className="form">
-              <Check label="Ajouter une page de garde" checked={s.cover.enabled} onChange={v => setCover({ enabled: v })} />
-              {s.cover.enabled && (
+              <Check label="Ajouter une page de garde" checked={sEff.cover.enabled} disabled={hasFound} onChange={v => setCover({ enabled: v })} />
+              {sEff.cover.enabled && (
                 <>
-                  {Object.keys(found).length > 0 && <p className="note">Page de garde lue dans ton texte : les champs détectés se remplissent tout seuls (non modifiables ici ; modifie-les dans ton texte).</p>}
-                  <Field label="École / université"><input value={sEff.cover.school} readOnly={!!found.school} onChange={e => setCover({ school: e.target.value })} placeholder="Institut Universitaire d’Abidjan" /></Field>
-                  <Field label="Type de document"><input value={sEff.cover.kind} readOnly={!!found.kind} onChange={e => setCover({ kind: e.target.value })} placeholder="MÉMOIRE DE FIN D’ÉTUDES" /></Field>
-                  <Field label="Thème / titre"><textarea rows={3} value={sEff.cover.title} readOnly={!!found.title} onChange={e => setCover({ title: e.target.value })} placeholder="Analyse du corridor Abidjan-Ouagadougou" /></Field>
+                  {hasFound && <p className="note">Page de garde lue dans ton texte : les champs détectés se remplissent tout seuls (modifie-les dans ton texte).</p>}
+                  <Field label="Établissement ou société"><input value={sEff.cover.school} readOnly={!!found.school} onChange={e => setCover({ school: e.target.value })} placeholder="Nom de l’établissement" /></Field>
+                  <Field label="Type de document"><input value={sEff.cover.kind} readOnly={!!found.kind} onChange={e => setCover({ kind: e.target.value })} placeholder="RAPPORT, DOSSIER, MÉMOIRE…" /></Field>
+                  <Field label="Titre"><textarea rows={3} value={sEff.cover.title} readOnly={!!found.title} onChange={e => setCover({ title: e.target.value })} placeholder="Le titre de ton document" /></Field>
                   <Field label="Présenté par"><input value={sEff.cover.author} readOnly={!!found.author} onChange={e => setCover({ author: e.target.value })} /></Field>
-                  <Field label="Encadreur"><input value={sEff.cover.supervisor} readOnly={!!found.supervisor} onChange={e => setCover({ supervisor: e.target.value })} /></Field>
-                  <Field label="Année académique"><input value={sEff.cover.year} readOnly={!!found.year} onChange={e => setCover({ year: e.target.value })} placeholder="2025-2026" /></Field>
-                  <Field label="Logo de l’école (PNG ou JPG)">
+                  <Field label="Encadreur ou responsable"><input value={sEff.cover.supervisor} readOnly={!!found.supervisor} onChange={e => setCover({ supervisor: e.target.value })} /></Field>
+                  <Field label="Année"><input value={sEff.cover.year} readOnly={!!found.year} onChange={e => setCover({ year: e.target.value })} placeholder="2025-2026" /></Field>
+                  <Field label="Logo (PNG ou JPG)">
                     <input type="file" accept="image/png,image/jpeg" onChange={e => onLogo(e.target.files?.[0])} />
                     {s.cover.logo && <button className="link" onClick={() => setCover({ logo: undefined })}>Retirer le logo</button>}
                   </Field>
@@ -276,10 +290,14 @@ export default function App() {
 
           {tab === 'reglages' && (
             <div className="form">
-              <div className="chips">
-                {(Object.keys(PRESETS) as PresetKey[]).map(k => (
-                  <button key={k} className={'chip ' + (preset === k ? 'on' : '')} onClick={() => pickPreset(k)}>{PRESETS[k].label}</button>
-                ))}
+              <div>
+                <p className="label">Modèle</p>
+                <div className="chips">
+                  {(Object.keys(PRESETS) as PresetKey[]).map(k => (
+                    <button key={k} className={'chip ' + (preset === k ? 'on' : '')} onClick={() => pickPreset(k)}>{PRESETS[k].label}</button>
+                  ))}
+                </div>
+                <p className="hint">{PRESETS[preset].hint}</p>
               </div>
               <div className="grid2">
                 <Field label="Police">
@@ -299,7 +317,7 @@ export default function App() {
                   </select>
                 </Field>
               </div>
-              {s.footer === 'text' && <Field label="Texte du pied de page"><input value={s.footerText} onChange={e => set({ footerText: e.target.value })} placeholder="Nom de l’école ou titre court" /></Field>}
+              {s.footer === 'text' && <Field label="Texte du pied de page"><input value={s.footerText} onChange={e => set({ footerText: e.target.value })} placeholder="Nom ou titre court" /></Field>}
               <Field label="Numéro placé"><select value={s.numAlign} onChange={e => set({ numAlign: e.target.value as Settings['numAlign'] })}><option value="center">Au centre</option><option value="right">À droite</option></select></Field>
               <Field label="En-tête (facultatif)"><input value={s.headerText} onChange={e => set({ headerText: e.target.value })} placeholder="Laisser vide pour aucun en-tête" /></Field>
               <Check label="Texte justifié" checked={s.justify} onChange={v => set({ justify: v })} />
@@ -315,29 +333,78 @@ export default function App() {
         </div>
 
         <div className={'view ' + (tab === 'apercu' ? '' : 'hide-mobile')}>
-          {error && <p className="error">{error}</p>}
-          <Suspense fallback={<p className="hint">Chargement de l’aperçu…</p>}><Preview layout={layout} /></Suspense>
+          {error && !dialog && <p className="error">{error}</p>}
+          {empty
+            ? <div className="emptyview"><div className="ghostpage" aria-hidden="true"><i /><i /><i className="s" /></div><p>Ton document apparaît ici dès que tu colles ton texte.</p></div>
+            : <Suspense fallback={<p className="hint">Chargement de l’aperçu…</p>}><Preview layout={layout} /></Suspense>}
         </div>
 
-        <div className="dock">
-          <button className="btn" onClick={() => download(false)} disabled={busy || !blocks.length}>{busy ? 'Préparation…' : 'Télécharger en Word'}</button>
-          {PDF_URL && <button className="btn ghost" onClick={() => download(true)} disabled={busy || !blocks.length}>PDF</button>}
+        <div className={'dock' + (inView && !empty ? ' show' : '')} aria-hidden={!(inView && !empty)}>
+          <button className="btn ghost" onClick={explicitSave} disabled={empty}>Enregistrer</button>
+          <button className="btn" onClick={() => { setError(''); setDialog('download') }} disabled={empty || !blocks.length}>Télécharger</button>
         </div>
       </main>
 
-      <section className="info">
-        <h2>Ce que le site fait pour toi</h2>
-        <ul className="inclus">
-          {['Page de garde avec logo', 'Sommaire automatique', 'Pagination et pied de page', 'Texte justifié, interligne, marges', 'Tableaux avec légendes numérotées', 'Grands tableaux en paysage, page par page', 'Export Word modifiable + PDF'].map(x => <li key={x}>{x}</li>)}
-        </ul>
-        <h2>Questions fréquentes</h2>
-        <details><summary>Ça marche sur téléphone ?</summary><p>Oui, tout est pensé pour le smartphone : l’écran passe en onglets Texte, Page de garde, Réglages et Aperçu.</p></details>
-        <details><summary>Mon texte est-il enregistré chez vous ?</summary><p>Le Word est fabriqué dans ton navigateur : ton texte reste sur ton appareil. Pour le PDF, le fichier est converti sur notre serveur puis supprimé aussitôt.</p></details>
-        <details><summary>Combien ça coûte ?</summary><p>Le premier document est gratuit. Ensuite, 1 000 F payés une seule fois donnent l’accès à vie.</p></details>
-        <details><summary>Je peux modifier le fichier après ?</summary><p>Oui : c’est un vrai fichier Word avec de vrais styles de titres, le sommaire est déjà rempli avec les bons numéros de page (clic droit › Mettre à jour les champs si tu modifies le texte).</p></details>
-      </section>
-      {modal && acc && <Suspense fallback={null}><Modal kind={modal} acc={acc} onClose={() => { setModal(null); setPending(null) }} onDone={resume} /></Suspense>}
-      <footer className="foot">mondocpro · fait en Côte d’Ivoire</footer>
+      {!install.installed && (
+        <>
+          <section className="band">
+            <h2>Trois gestes, c’est fini</h2>
+            <ol className="steps">
+              <li><b>1</b><h3>Colle ton texte</h3><p>Depuis Word, un mail, un PDF ou tes notes.</p></li>
+              <li><b>2</b><h3>Choisis un modèle</h3><p>Complet, Standard ou Simple. Un seul geste.</p></li>
+              <li><b>3</b><h3>Télécharge</h3><p>Word modifiable ou PDF prêt à envoyer.</p></li>
+            </ol>
+          </section>
+
+          <section className="info">
+            <h2>Tout est fait pour toi</h2>
+            <ul className="feats">
+              <li><h3>Titres reconnus</h3><p>CHAPITRE 1, I., A., 1.1… détectés tout seuls.</p></li>
+              <li><h3>Sommaire automatique</h3><p>Avec les bons numéros de page.</p></li>
+              <li><h3>Tableaux propres</h3><p>Collés depuis Word, Excel ou un PDF, avec légendes.</p></li>
+              <li><h3>Pagination exacte</h3><p>L’aperçu montre les vraies pages.</p></li>
+              <li><h3>Page de garde</h3><p>Facultative, avec ton logo.</p></li>
+              <li><h3>Word et PDF</h3><p>Un vrai fichier Word, que tu peux modifier.</p></li>
+            </ul>
+          </section>
+
+          <section className="band" id="installer">
+            <h2>Installe mondocpro</h2>
+            <p className="lead">Un accès direct depuis ton écran d’accueil, même sans connexion.</p>
+            {install.canPrompt && <button className="btn" onClick={() => install.prompt()}>Installer l’application</button>}
+            <div className="how">
+              <div><h3>Android · Chrome</h3><p>Touche <b>⋮</b> puis <b>« Installer l’application »</b>.</p></div>
+              <div><h3>iPhone · Safari</h3><p>Touche <b>Partager</b> puis <b>« Sur l’écran d’accueil »</b>.</p></div>
+            </div>
+          </section>
+
+          <section className="info">
+            <h2>Questions</h2>
+            <details><summary>Est-ce vraiment gratuit ?</summary><p>Oui, mondocpro est gratuit pour le moment. Un tarif sera proposé plus tard, après la période de lancement.</p></details>
+            <details><summary>Mon texte reste-t-il privé ?</summary><p>Oui. Tout se passe dans ton navigateur : ton texte n’est envoyé nulle part.</p></details>
+            <details><summary>Puis-je modifier le fichier ?</summary><p>Oui. Le Word est un vrai fichier, avec de vrais styles de titres et un sommaire déjà rempli.</p></details>
+            <details><summary>Comment sont reconnus les tableaux ?</summary><p>Copie-les depuis Word, Excel ou un PDF, puis colle-les dans ton texte. Ajoute « Tableau : titre » juste avant pour la légende.</p></details>
+            <details><summary>Où sont mes documents ?</summary><p>Enregistrés automatiquement sur ton appareil, dans « Mes documents ».</p></details>
+          </section>
+          <footer className="foot">mondocpro · fait en Côte d’Ivoire</footer>
+        </>
+      )}
+
+      {dialog === 'download' && <Suspense fallback={null}><DownloadDialog defaultName={docName === 'Sans titre' ? 'document' : docName} pages={pages} busy={busy} error={error} onPick={download} onClose={() => setDialog(null)} /></Suspense>}
+      {dialog === 'library' && <Suspense fallback={null}><LibraryDialog docs={docs} currentId={docId} onOpen={load} onDelete={id => { removeDoc(id); setDocs(listDocs()); if (id === docId) { setSaved('idle') } }} onNew={newDoc} onClose={() => setDialog(null)} /></Suspense>}
+      {toast && <div className="toast" role="status">{toast}</div>}
     </>
   )
+
+  function onLogo(f?: File) {
+    if (!f) return
+    const r = new FileReader()
+    r.onload = () => {
+      const url = String(r.result), img = new Image()
+      if (!/^data:image\/(png|jpe?g)/.test(url)) { setError('Logo : utilise un fichier PNG ou JPG.'); return }
+      img.onload = () => setCover({ logo: { url, w: img.naturalWidth, h: img.naturalHeight } })
+      img.src = url
+    }
+    r.readAsDataURL(f)
+  }
 }
