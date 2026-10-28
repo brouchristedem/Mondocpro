@@ -13,6 +13,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 /* ---------- barre du haut ---------- */
 .nav { position: sticky; top: 0; z-index: 10; display: flex; justify-content: center; align-items: center; min-height: 56px; padding: max(8px, env(safe-area-inset-top)) 16px 8px; background: rgba(246, 248, 253, .92); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
 .brand { display: flex; gap: 10px; align-items: center; font-weight: 800; font-size: 19px; color: var(--navy); text-decoration: none; }
+.nav-btn.left { right: auto; left: 12px; }
 .nav-btn { position: absolute; right: 12px; border: 1px solid var(--line); background: #fff; color: var(--blue); font-weight: 700; font-size: 13px; padding: 7px 14px; border-radius: 99px; cursor: pointer; }
 
 .btn { display: inline-block; border: 0; border-radius: 999px; padding: 13px 26px; background: var(--sun); color: var(--navy); font-weight: 700; text-decoration: none; cursor: pointer; box-shadow: 0 6px 18px rgba(255, 201, 74, .45); transition: transform .12s; }
@@ -178,3 +179,10 @@ code { background: #EEF2FD; padding: 1px 6px; border-radius: 6px; }
 .toast { position: fixed; left: 50%; bottom: calc(84px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 30; max-width: min(92vw, 420px); background: var(--navy); color: #fff; padding: 11px 18px; border-radius: 14px; font-size: 14px; text-align: center; box-shadow: 0 10px 30px rgba(15, 30, 74, .35); }
 
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } .btn, .dock { transition: none; } }
+
+.or { text-align: center; }
+.modal form { display: grid; gap: 10px; }
+.modal input[type=email] { width: 100%; border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: #FBFCFF; font-size: 16px; }
+.acct { background: var(--bg); border: 1px solid var(--line); border-radius: 14px; padding: 12px; display: grid; gap: 8px; justify-items: center; }
+.acct p { font-size: 14px; }
+.acct.on p { color: var(--navy); }

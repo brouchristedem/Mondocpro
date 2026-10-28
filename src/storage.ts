@@ -1,11 +1,12 @@
 import { DEFAULTS, DEFAULT_PRESET, LEGACY_PRESETS, PRESETS, type PresetKey, type Settings } from './lib/types'
 
-/** Documents enregistrés dans ce navigateur (aucun envoi sur un serveur). */
+/** Documents enregistrés sur cet appareil ; si l'utilisateur est connecté, ils sont aussi gardés dans son compte (voir sync.ts). */
 export interface Doc { id: string; name: string; text: string; s: Settings; preset: PresetKey; updatedAt: number }
 
 const LIST = 'mondocpro:docs:v2'
 const CURRENT = 'mondocpro:current:v2'
 const OLD = 'mondocpro:v1'
+const TOMBS = 'mondocpro:deleted:v2'
 
 export const newId = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2))
 
@@ -55,8 +56,27 @@ export function saveDoc(d: Doc): boolean {
     } catch { return false }
   }
 }
+/** Documents supprimés sur cet appareil (id → date) : sert à les supprimer aussi dans le compte. */
+export function tombs(): Record<string, number> {
+  try { const t = JSON.parse(localStorage.getItem(TOMBS) || '{}'); return t && typeof t === 'object' ? t : {} } catch { return {} }
+}
+export function clearTombs(ids: string[]) {
+  try { const t = tombs(); for (const id of ids) delete t[id]; localStorage.setItem(TOMBS, JSON.stringify(t)) } catch { /* */ }
+}
 export function removeDoc(id: string) {
+  try {
+    localStorage.setItem(LIST, JSON.stringify(read().filter(d => d.id !== id)))
+    localStorage.setItem(TOMBS, JSON.stringify({ ...tombs(), [id]: Date.now() }))
+  } catch { /* */ }
+}
+/** Retire d'ici un document supprimé depuis un autre appareil (sans laisser de trace de suppression). */
+export function dropLocal(id: string) {
   try { localStorage.setItem(LIST, JSON.stringify(read().filter(d => d.id !== id))) } catch { /* */ }
+}
+export function fromCloud(c: { id: string; name: string; text: string; s: string; preset: string; updatedAt: number }): Doc {
+  let s: Settings = DEFAULTS
+  try { s = mergeSettings(JSON.parse(c.s)) } catch { /* réglages illisibles : valeurs par défaut */ }
+  return { id: c.id, name: c.name || 'Sans titre', text: c.text, s, preset: presetOf(c.preset), updatedAt: c.updatedAt }
 }
 
 /** Nom lisible : titre de la page de garde, sinon premier titre, sinon début du texte. */

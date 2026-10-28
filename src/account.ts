@@ -3,7 +3,8 @@ import {
   GoogleAuthProvider, getAuth, isSignInWithEmailLink, onAuthStateChanged, sendSignInLinkToEmail,
   signInWithEmailLink, signInWithPopup, signOut,
 } from 'firebase/auth'
-import { doc, getDoc, getFirestore, onSnapshot, setDoc } from 'firebase/firestore'
+import type { CloudDoc } from './sync'
+import { collection, doc, getDoc, getDocs, getFirestore, onSnapshot, setDoc } from 'firebase/firestore'
 
 const env = import.meta.env
 export const HAS_BACKEND = !!env.VITE_FIREBASE_API_KEY
@@ -65,4 +66,19 @@ export async function claim(action: 'download' | 'activate', payload: Record<str
   })
   const body = await r.json().catch(() => ({}))
   return { status: r.status, error: (body.error as string | undefined) ?? '' }
+}
+
+/** Documents du compte : users/{uid}/docs/{id}. */
+export type { CloudDoc }
+export async function listCloudDocs(uid: string): Promise<CloudDoc[]> {
+  const snap = await getDocs(collection(db, 'users', uid, 'docs'))
+  return snap.docs.map(d => {
+    const x = d.data() as Partial<CloudDoc>
+    return { id: d.id, name: String(x.name ?? ''), text: String(x.text ?? ''), s: String(x.s ?? '{}'), preset: String(x.preset ?? 'standard'), updatedAt: Number(x.updatedAt) || 0, deleted: x.deleted === true }
+  })
+}
+export function saveCloudDoc(uid: string, d: CloudDoc) {
+  const data: Record<string, unknown> = { name: d.name, text: d.text, s: d.s, preset: d.preset, updatedAt: d.updatedAt }
+  if (d.deleted) data.deleted = true
+  return setDoc(doc(db, 'users', uid, 'docs', d.id), data)
 }

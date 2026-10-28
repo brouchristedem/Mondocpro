@@ -3,12 +3,17 @@ import { extractCover } from './lib/cover'
 import { parse } from './lib/parse'
 import type { Layout } from './lib/layout'
 import { DEFAULTS, DEFAULT_PRESET, PRESETS, type Block, type Cover, type PresetKey, type Settings } from './lib/types'
-import { currentId, getDoc, listDocs, nameFor, newId, removeDoc, saveDoc, setCurrent, type Doc } from './storage'
+import { clearTombs, currentId, dropLocal, fromCloud, getDoc, listDocs, nameFor, newId, removeDoc, saveDoc, setCurrent, tombs, type Doc } from './storage'
+import { deletedMarker, planSync, toCloud } from './sync'
 import { useInstall } from './install'
 
 const Preview = lazy(() => import('./Preview'))
 const DownloadDialog = lazy(() => import('./DownloadDialog'))
 const LibraryDialog = lazy(() => import('./LibraryDialog'))
+const LoginDialog = lazy(() => import('./LoginDialog'))
+type Acc = typeof import('./account')
+const HAS_BACKEND = !!import.meta.env.VITE_FIREBASE_API_KEY
+const ACCT_FLAG = 'mondocpro:acct'
 const PDF_URL = import.meta.env.VITE_PDF_URL as string | undefined
 
 const makeLayout = (...a: Parameters<typeof import('./lib/layout').layoutDocument>) => import('./lib/layout').then(m => m.layoutDocument(...a))
@@ -53,11 +58,19 @@ export default function App() {
   const [layout, setLayout] = useState<Layout | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [dialog, setDialog] = useState<null | 'download' | 'library'>(null)
+  const [dialog, setDialog] = useState<null | 'download' | 'library' | 'login'>(null)
   const [saved, setSaved] = useState<'idle' | 'saving' | 'saved' | 'error'>(init.text.trim() ? 'saved' : 'idle')
   const [docs, setDocs] = useState<Doc[]>(() => listDocs())
   const [toast, setToast] = useState('')
   const install = useInstall()
+  const [acc, setAcc] = useState<Acc | null>(null)
+  const [account, setAccount] = useState<import('./account').Account | null>(null)
+  const [syncState, setSyncState] = useState<'off' | 'syncing' | 'ok' | 'error'>('off')
+  const accRef = useRef<Promise<Acc> | null>(null)
+  const stopWatch = useRef<() => void>(() => {})
+  const syncing = useRef(false)
+  const pushT = useRef<number>(0)
+  const uid = account?.uid
   const taRef = useRef<HTMLTextAreaElement>(null)
   const atelierRef = useRef<HTMLElement>(null)
   const [inView, setInView] = useState(false)
@@ -99,11 +112,25 @@ export default function App() {
   // enregistrement automatique (dans cet appareil)
   const persist = useCallback((): boolean => {
     if (!text.trim()) return true
-    const ok = saveDoc({ id: docId, name: docName, text, s, preset, updatedAt: Date.now() })
-    if (ok) { setCurrent(docId); setDocs(listDocs()) }
+    // rien n'a changé depuis le dernier enregistrement : on ne touche pas à la date (sinon un document ouvert écraserait la version du compte)
+    const prev = getDoc(docId)
+    if (prev && prev.text === text && prev.preset === preset && JSON.stringify(prev.s) === JSON.stringify(s)) return true
+    const d: Doc = { id: docId, name: docName, text, s, preset, updatedAt: Date.now() }
+    const ok = saveDoc(d)
+    if (ok) {
+      setCurrent(docId); setDocs(listDocs())
+      if (acc && uid) { // envoi au compte, regroupé (au plus un envoi toutes les 1,5 s)
+        window.clearTimeout(pushT.current)
+        pushT.current = window.setTimeout(() => { acc.saveCloudDoc(uid, toCloud(d)).then(() => setSyncState('ok')).catch(() => setSyncState('error')) }, 1500)
+      }
+    }
     setSaved(ok ? 'saved' : 'error')
     return ok
-  }, [docId, docName, text, s, preset])
+  }, [docId, docName, text, s, preset, acc, uid])
+  const persistRef = useRef(persist)
+  persistRef.current = persist
+  const docIdRef = useRef(docId)
+  docIdRef.current = docId
   const firstRun = useRef(true)
   useEffect(() => {
     if (firstRun.current) { firstRun.current = false; return }
@@ -118,6 +145,63 @@ export default function App() {
     const idle = (window as unknown as { requestIdleCallback?: (f: () => void) => void }).requestIdleCallback ?? ((f: () => void) => setTimeout(f, 2500))
     idle(() => { import('./lib/layout'); import('./lib/build'); import('./Preview'); import('./DownloadDialog'); import('./LibraryDialog') })
   }, [])
+
+  // compte (facultatif) : chargé seulement si la personne est déjà connectée ou revient d'un lien reçu par e-mail
+  const loadAcc = useCallback((): Promise<Acc> => {
+    if (!accRef.current) {
+      accRef.current = import('./account').then(async m => {
+        setAcc(m)
+        await m.finishLink().catch(() => {})
+        stopWatch.current = m.watch(a => { setAccount(a); if (a) { try { localStorage.setItem(ACCT_FLAG, '1') } catch { /* */ } } })
+        return m
+      })
+    }
+    return accRef.current
+  }, [])
+  useEffect(() => {
+    if (!HAS_BACKEND) return
+    let flag = false
+    try { flag = localStorage.getItem(ACCT_FLAG) === '1' } catch { /* */ }
+    if (flag || /[?&]oobCode=/.test(location.search)) loadAcc()
+    return () => stopWatch.current()
+  }, [loadAcc])
+  useEffect(() => { if (account && dialog === 'login') { setDialog(null); say('Connecté : tes documents sont synchronisés.') } }, [account, dialog, say])
+
+  const syncAll = useCallback(async () => {
+    if (!acc || !uid || syncing.current) return
+    syncing.current = true; setSyncState('syncing')
+    try {
+      persistRef.current()
+      const plan = planSync(listDocs(), await acc.listCloudDocs(uid), tombs())
+      for (const c of plan.pull) saveDoc(fromCloud(c))
+      for (const id of plan.removeLocal) dropLocal(id)
+      await Promise.all([
+        ...plan.push.map(d => acc.saveCloudDoc(uid, toCloud(d))),
+        ...plan.pushDeleted.map(x => acc.saveCloudDoc(uid, deletedMarker(x.id, x.updatedAt))),
+      ])
+      clearTombs(plan.pushDeleted.map(x => x.id))
+      setDocs(listDocs())
+      const here = docIdRef.current
+      const fresh = plan.pull.find(c => c.id === here)
+      if (fresh) { const d = fromCloud(fresh); setText(d.text); setS(d.s); setPreset(d.preset); setSaved('saved') }
+      setSyncState('ok')
+    } catch { setSyncState('error') }
+    syncing.current = false
+  }, [acc, uid])
+  useEffect(() => {
+    if (!uid) { setSyncState('off'); return }
+    syncAll()
+    const onVis = () => { if (document.visibilityState === 'visible') syncAll() }
+    document.addEventListener('visibilitychange', onVis)
+    return () => document.removeEventListener('visibilitychange', onVis)
+  }, [uid, syncAll])
+  const openLogin = async () => { await loadAcc(); setDialog('login') }
+  const logout = async () => { await acc?.logout(); try { localStorage.removeItem(ACCT_FLAG) } catch { /* */ } setAccount(null); setDialog(null); say('Déconnecté. Tes documents restent sur cet appareil.') }
+  const removeOne = (id: string) => {
+    removeDoc(id); setDocs(listDocs())
+    if (id === docId) setSaved('idle')
+    if (acc && uid) acc.saveCloudDoc(uid, deletedMarker(id, Date.now())).then(() => clearTombs([id])).catch(() => setSyncState('error'))
+  }
 
   const load = (d: Doc) => {
     setDocId(d.id); setText(d.text); setS(d.s); setPreset(d.preset); setTab('texte'); setDialog(null); setCurrent(d.id)
@@ -176,7 +260,9 @@ export default function App() {
     setBusy(false)
   }
 
-  const savedLabel = saved === 'saving' ? 'Enregistrement…' : saved === 'saved' ? 'Enregistré' : saved === 'error' ? 'Espace plein : télécharge ton fichier' : ''
+  const syncLabel = syncState === 'syncing' ? 'synchronisation…' : syncState === 'ok' ? 'synchronisé' : syncState === 'error' ? 'synchronisation impossible' : ''
+  const savedLabel = saved === 'saving' ? 'Enregistrement…' : saved === 'error' ? 'Espace plein : télécharge ton fichier'
+    : saved === 'saved' ? (account && syncLabel ? `Enregistré · ${syncLabel}` : 'Enregistré') : ''
   const explicitSave = () => { if (persist()) say('Document enregistré dans « Mes documents ».'); else say('Enregistrement impossible : l’espace de ton navigateur est plein.') }
   const goInstall = async () => {
     if (install.canPrompt) { await install.prompt(); return }
@@ -187,6 +273,9 @@ export default function App() {
   return (
     <>
       <header className="nav">
+        {HAS_BACKEND && (account
+          ? <button className="nav-btn left" onClick={() => { setDocs(listDocs()); setDialog('library') }}>Mon compte</button>
+          : <button className="nav-btn left" onClick={openLogin}>Connexion</button>)}
         <a className="brand" href="#top"><Logo /><span>mondocpro</span></a>
         {!install.installed && <button className="nav-btn" onClick={goInstall}>Installer</button>}
       </header>
@@ -364,7 +453,7 @@ export default function App() {
               <li><h3>Tableaux propres</h3><p>Collés depuis Word, Excel ou un PDF, avec légendes.</p></li>
               <li><h3>Pagination exacte</h3><p>L’aperçu montre les vraies pages.</p></li>
               <li><h3>Page de garde</h3><p>Facultative, avec ton logo.</p></li>
-              <li><h3>Word et PDF</h3><p>Un vrai fichier Word, que tu peux modifier.</p></li>
+              <li><h3>Tes documents partout</h3><p>Connecte-toi (gratuit) pour les retrouver sur tous tes appareils.</p></li>
             </ul>
           </section>
 
@@ -381,17 +470,18 @@ export default function App() {
           <section className="info">
             <h2>Questions</h2>
             <details><summary>Est-ce vraiment gratuit ?</summary><p>Oui, mondocpro est gratuit pour le moment. Un tarif sera proposé plus tard, après la période de lancement.</p></details>
-            <details><summary>Mon texte reste-t-il privé ?</summary><p>Oui. Tout se passe dans ton navigateur : ton texte n’est envoyé nulle part.</p></details>
+            <details><summary>Mon texte reste-t-il privé ?</summary><p>Oui. Sans compte, ton texte reste sur ton appareil. Si tu te connectes, tes documents sont gardés dans ton compte, visibles par toi seul.</p></details>
             <details><summary>Puis-je modifier le fichier ?</summary><p>Oui. Le Word est un vrai fichier, avec de vrais styles de titres et un sommaire déjà rempli.</p></details>
             <details><summary>Comment sont reconnus les tableaux ?</summary><p>Copie-les depuis Word, Excel ou un PDF, puis colle-les dans ton texte. Ajoute « Tableau : titre » juste avant pour la légende.</p></details>
-            <details><summary>Où sont mes documents ?</summary><p>Enregistrés automatiquement sur ton appareil, dans « Mes documents ».</p></details>
+            <details><summary>Où sont mes documents ?</summary><p>Enregistrés automatiquement sur ton appareil, dans « Mes documents ». Connecte-toi pour les retrouver sur tous tes appareils.</p></details>
           </section>
           <footer className="foot">mondocpro · fait en Côte d’Ivoire</footer>
         </>
       )}
 
       {dialog === 'download' && <Suspense fallback={null}><DownloadDialog defaultName={docName === 'Sans titre' ? 'document' : docName} pages={pages} busy={busy} error={error} onPick={download} onClose={() => setDialog(null)} /></Suspense>}
-      {dialog === 'library' && <Suspense fallback={null}><LibraryDialog docs={docs} currentId={docId} onOpen={load} onDelete={id => { removeDoc(id); setDocs(listDocs()); if (id === docId) { setSaved('idle') } }} onNew={newDoc} onClose={() => setDialog(null)} /></Suspense>}
+      {dialog === 'library' && <Suspense fallback={null}><LibraryDialog docs={docs} currentId={docId} onOpen={load} onDelete={removeOne} onNew={newDoc} onClose={() => setDialog(null)} account={HAS_BACKEND ? (account ? { email: account.email } : null) : undefined} syncLabel={syncLabel} onLogin={openLogin} onLogout={logout} /></Suspense>}
+      {dialog === 'login' && acc && <Suspense fallback={null}><LoginDialog acc={acc} onClose={() => setDialog(null)} /></Suspense>}
       {toast && <div className="toast" role="status">{toast}</div>}
     </>
   )
