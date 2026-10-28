@@ -61,3 +61,15 @@ assert.equal(flat[1].rows!.length, 4)
 assert.equal(tables('Tableau 1 : Coûts\n\nCe tableau montre les coûts de transport par zone.\n\nSuite.').length, 0)
 assert.equal(tables('Les gammes :\n\nJus de fruits\n\nConserves\n\nCéréales\n\nSuite du texte.').length, 0)
 console.log('parseur : OK')
+
+// colonnes alignées par des espaces (copie d'un PDF) : reconnues comme un tableau si une colonne est chiffrée
+assert.deepEqual(tables('Poste        Montant      Part\nTransport    1 200 000    40 %\nStockage       900 000    30 %\nDouane         900 000    30 %')[0],
+  [['Poste', 'Montant', 'Part'], ['Transport', '1 200 000', '40 %'], ['Stockage', '900 000', '30 %'], ['Douane', '900 000', '30 %']])
+// CSV à points-virgules
+assert.deepEqual(tables('Nom;Ville;Âge\nAya;Abidjan;24\nIbrahim;Bouaké;31')[0], [['Nom', 'Ville', 'Âge'], ['Aya', 'Abidjan', '24'], ['Ibrahim', 'Bouaké', '31']])
+// jamais un paragraphe : double espace après un point, énumération à points-virgules
+assert.equal(tables('Première phrase.  Deuxième phrase.\nTroisième phrase.  Quatrième phrase.\nCinquième phrase.  Sixième phrase.').length, 0)
+assert.equal(tables('Il faut :\n\n- les flux physiques ;\n- les flux d’information ;\n- les flux financiers.').length, 0)
+assert.equal(tables('les routes ; les ports ;\nles rails ; les airs ;\nles mers ; les lacs ;').length, 0)
+// deux lignes seulement : pas assez pour affirmer que c'est un tableau
+assert.equal(tables('Poste        Montant\nTransport    1 200').length, 0)

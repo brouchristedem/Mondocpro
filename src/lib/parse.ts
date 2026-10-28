@@ -148,8 +148,45 @@ function unflattenTables(lines: string[]): string[] {
   return out
 }
 
+
+/**
+ * Tableaux « à plat » sans tabulation : colonnes alignées avec plusieurs espaces (texte copié d'un PDF, d'un mail, d'un tableur
+ * exporté en texte) ou séparées par des points-virgules (CSV). On les remet en lignes à tabulations, que le reste du parseur lit.
+ * Règles prudentes pour ne jamais transformer un paragraphe en tableau : au moins 3 lignes de suite avec le même nombre de
+ * cellules (2 à 8), cellules courtes et sans ponctuation de phrase ; avec des espaces, au moins une colonne chiffrée.
+ */
+function splitAligned(raw: string): { cells: string[]; sep: 'space' | 'semi' } | null {
+  const t = raw.replace(/ /g, ' ').trim()
+  if (!t || t.length > 160 || t.includes('\t') || t.includes('|') || /^#{1,4}\s/.test(t)) return null
+  if (t.includes(';')) {
+    const c = t.split(';').map(x => x.trim())
+    return c.length >= 2 && c.length <= 10 && c.every(x => x && x.length <= 50) ? { cells: c, sep: 'semi' } : null
+  }
+  const c = t.split(/ {2,}/).map(x => x.trim())
+  return c.length >= 2 && c.length <= 8 && c.every(x => x.length <= 38 && !/[.!?;:]$/.test(x)) ? { cells: c, sep: 'space' } : null
+}
+export function alignColumns(lines: string[]): string[] {
+  const out: string[] = []
+  let i = 0
+  while (i < lines.length) {
+    const first = splitAligned(lines[i])
+    if (!first) { out.push(lines[i]); i++; continue }
+    const run: string[][] = [first.cells]
+    let j = i + 1
+    while (j < lines.length) {
+      const nx = splitAligned(lines[j])
+      if (!nx || nx.sep !== first.sep || nx.cells.length !== first.cells.length) break
+      run.push(nx.cells); j++
+    }
+    const body = run.slice(1)
+    const ok = run.length >= 3 && (first.sep === 'semi' || first.cells.every(c => !NUM.test(c)) && first.cells.some((_, c) => body.every(r => NUM.test(r[c]))))
+    if (ok) { for (const r of run) out.push(r.join('\t')); i = j } else { out.push(lines[i]); i++ }
+  }
+  return out
+}
+
 export function parse(src: string): Block[] {
-  const lines = unflattenTables(stripToc(src.replace(/\r/g, '').split('\n').map(l => l.replace(/\s+$/, ''))))
+  const lines = unflattenTables(alignColumns(stripToc(src.replace(/\r/g, '').split('\n').map(l => l.replace(/\s+$/, '')))))
   const hasBlank = lines.some(l => l.trim() === '')
   const explicit = lines.some(l => /^#{1,4}\s+\S/.test(l))
 
