@@ -187,6 +187,10 @@ code { background: #EEF2FD; padding: 1px 6px; border-radius: 6px; }
 .acct p { font-size: 14px; }
 .acct.on p { color: var(--navy); }
 
+.nav-right { position: absolute; right: 12px; display: flex; gap: 6px; }
+.nav-right .nav-btn { position: static; }
+.about-photo { width: 120px; height: 120px; border-radius: 50%; object-fit: cover; justify-self: center; border: 3px solid var(--sun); }
+.modal .tiny a, .foot .link { color: var(--blue); font-weight: 700; }
 .wa-fab { position: fixed; right: 14px; bottom: calc(84px + env(safe-area-inset-bottom)); z-index: 8; width: 54px; height: 54px; border-radius: 50%; background: #25D366; display: grid; place-items: center; box-shadow: 0 8px 22px rgba(15, 30, 74, .3); }
 .wa-fab:active { transform: scale(.96); }
 .foot a { color: var(--blue); font-weight: 700; text-decoration: none; }

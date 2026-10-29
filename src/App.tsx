@@ -10,6 +10,7 @@ import ContactFab from './ContactFab'
 import { PHONE_SHOW, TEL_URL, WA_URL } from './contact'
 
 const AdminDialog = lazy(() => import('./AdminDialog'))
+const AboutDialog = lazy(() => import('./AboutDialog'))
 const ADMIN_EMAILS = ((import.meta.env.VITE_ADMIN_EMAILS as string | undefined) ?? 'brouchristedem@gmail.com').split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
 const Preview = lazy(() => import('./Preview'))
 const DownloadDialog = lazy(() => import('./DownloadDialog'))
@@ -62,7 +63,7 @@ export default function App() {
   const [layout, setLayout] = useState<Layout | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [dialog, setDialog] = useState<null | 'download' | 'library' | 'login' | 'admin'>(null)
+  const [dialog, setDialog] = useState<null | 'download' | 'library' | 'login' | 'admin' | 'about'>(null)
   const [users, setUsers] = useState<number | null>(null)
   const [saved, setSaved] = useState<'idle' | 'saving' | 'saved' | 'error'>(init.text.trim() ? 'saved' : 'idle')
   const [docs, setDocs] = useState<Doc[]>(() => listDocs())
@@ -292,7 +293,10 @@ export default function App() {
           ? <button className="nav-btn left" onClick={() => { setDocs(listDocs()); setDialog('library') }}>Mon compte</button>
           : <button className="nav-btn left" onClick={openLogin}>Connexion</button>)}
         <a className="brand" href="#top"><Logo /><span>mondocpro</span></a>
-        {!install.installed && <button className="nav-btn" onClick={goInstall}>Installer</button>}
+        <div className="nav-right">
+          {isAdmin && <button className="nav-btn" onClick={async () => { await loadAcc(); setDialog('admin') }}>Admin</button>}
+          {!install.installed && <button className="nav-btn" onClick={goInstall}>Installer</button>}
+        </div>
       </header>
 
       {!install.installed && (
@@ -492,7 +496,7 @@ export default function App() {
           </section>
           <footer className="foot">
             <p className="contact">Service client : <a href={TEL_URL}>{PHONE_SHOW}</a> · <a href={WA_URL} target="_blank" rel="noopener noreferrer">WhatsApp</a></p>
-            mondocpro · fait en Côte d’Ivoire
+            <button className="link" onClick={() => setDialog('about')}>À propos</button> · mondocpro · fait en Côte d’Ivoire
           </footer>
         </>
       )}
@@ -500,6 +504,7 @@ export default function App() {
       {dialog === 'download' && <Suspense fallback={null}><DownloadDialog defaultName={docName === 'Sans titre' ? 'document' : docName} pages={pages} busy={busy} error={error} onPick={download} onClose={() => setDialog(null)} /></Suspense>}
       {dialog === 'library' && <Suspense fallback={null}><LibraryDialog docs={docs} currentId={docId} onOpen={load} onDelete={removeOne} onNew={newDoc} onClose={() => setDialog(null)} account={HAS_BACKEND ? (account ? { email: account.email } : null) : undefined} syncLabel={syncLabel} onLogin={openLogin} onLogout={logout} onAdmin={isAdmin ? () => setDialog('admin') : undefined} /></Suspense>}
       {dialog === 'admin' && acc && isAdmin && <Suspense fallback={null}><AdminDialog acc={acc} onClose={() => setDialog(null)} /></Suspense>}
+      {dialog === 'about' && <Suspense fallback={null}><AboutDialog onClose={() => setDialog(null)} /></Suspense>}
       <ContactFab />
       {dialog === 'login' && acc && <Suspense fallback={null}><LoginDialog acc={acc} onClose={() => setDialog(null)} /></Suspense>}
       {toast && <div className="toast" role="status">{toast}</div>}
