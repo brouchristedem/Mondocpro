@@ -111,6 +111,7 @@ export function buildDocument(blocks: Block[], s: Settings, nums?: PageNumbers):
       children: [new TextRun({ text: c.title, size: half(s.size + 8), bold: true })],
     }))
     if (c.author.trim()) cover.push(centered(`Présenté par : ${c.author}`, s.size, { before: 240 }))
+    if (c.group?.trim()) cover.push(centered(`Filière : ${c.group}`, s.size))
     if (c.supervisor.trim()) cover.push(centered(`Encadreur : ${c.supervisor}`, s.size))
     if (c.year.trim()) cover.push(centered(`Année académique : ${c.year}`, s.size, { before: 480 }))
   }

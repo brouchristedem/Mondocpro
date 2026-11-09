@@ -83,17 +83,26 @@ export default function App() {
   const [inView, setInView] = useState(false)
   const toastT = useRef<number>(0)
 
+  /** Page de garde écrite au début d'un texte collé : ses infos passent dans l'onglet « Page de garde » (modifiable là-bas) et sortent du texte. */
+  const adoptCover = (t: string, base: Settings): { text: string; s: Settings } => {
+    const m = extractCover(t)
+    if (!Object.keys(m.cover).length) return { text: t, s: base }
+    return { text: m.body, s: { ...base, cover: { ...base.cover, ...m.cover, enabled: true } } }
+  }
+  const onType = (v: string) => {
+    if (v.length - text.length < 60) { setText(v); return } // frappe normale
+    const r = adoptCover(v, s) // gros ajout d'un coup = collage
+    setText(r.text); if (r.s !== s) setS(r.s)
+  }
+
   const say = useCallback((m: string) => {
     setToast(m); window.clearTimeout(toastT.current); toastT.current = window.setTimeout(() => setToast(''), 3200)
   }, [])
 
   const set = (p: Partial<Settings>) => setS(v => ({ ...v, ...p }))
   const setCover = (p: Partial<Cover>) => setS(v => ({ ...v, cover: { ...v.cover, ...p } }))
-  const meta = useMemo(() => extractCover(text), [text])
-  const blocks = useMemo(() => parse(meta.body), [meta])
-  const found = meta.cover
-  const hasFound = Object.keys(found).length > 0
-  const sEff = useMemo<Settings>(() => ({ ...s, cover: { ...s.cover, ...found, enabled: s.cover.enabled || hasFound } }), [s, found, hasFound])
+  const blocks = useMemo(() => parse(text), [text])
+  const sEff = s
   const empty = !text.trim()
   const heads = blocks.filter(b => b.t === 'h').length
   const tables = blocks.filter(b => b.t === 'table').length
@@ -199,7 +208,7 @@ export default function App() {
       setDocs(listDocs())
       const here = docIdRef.current
       const fresh = plan.pull.find(c => c.id === here)
-      if (fresh) { const d = fromCloud(fresh); setText(d.text); setS(d.s); setPreset(d.preset); setSaved('saved') }
+      if (fresh) { const d = fromCloud(fresh); const r = adoptCover(d.text, d.s); setText(r.text); setS(r.s); setPreset(d.preset); setSaved('saved') }
       setSyncState('ok')
     } catch { setSyncState('error') }
     syncing.current = false
@@ -220,7 +229,8 @@ export default function App() {
   }
 
   const load = (d: Doc) => {
-    setDocId(d.id); setText(d.text); setS(d.s); setPreset(d.preset); setTab('texte'); setDialog(null); setCurrent(d.id)
+    const r = adoptCover(d.text, d.s) // anciens documents : page de garde encore écrite dans le texte
+    setDocId(d.id); setText(r.text); setS(r.s); setPreset(d.preset); setTab('texte'); setDialog(null); setCurrent(d.id)
     setSaved(d.text.trim() ? 'saved' : 'idle'); firstRun.current = true
     document.getElementById('atelier')?.scrollIntoView()
   }
@@ -239,7 +249,8 @@ export default function App() {
     try {
       const t = await navigator.clipboard.readText()
       if (!t.trim()) { say('Le presse-papiers est vide : copie d’abord ton texte.'); return }
-      setText(cur => (cur.trim() ? cur.replace(/\s+$/, '') + '\n\n' + t : t))
+      if (text.trim()) setText(cur => cur.replace(/\s+$/, '') + '\n\n' + t)
+      else { const r = adoptCover(t, s); setText(r.text); if (r.s !== s) setS(r.s) }
       setTab('texte')
     } catch {
       taRef.current?.focus()
@@ -343,7 +354,7 @@ export default function App() {
         <div className="bar">
           <button className="chipbtn" onClick={() => { setDocs(listDocs()); setDialog('library') }}>Mes documents{docs.length > 0 ? ` · ${docs.length}` : ''}</button>
           <span className={'status ' + saved} aria-live="polite">{savedLabel}</span>
-          <button className="chipbtn" onClick={newDoc} disabled={empty && !hasFound}>Nouveau</button>
+          <button className="chipbtn" onClick={newDoc} disabled={empty}>Nouveau</button>
         </div>
 
         <nav className="tabs" role="tablist">
@@ -359,7 +370,7 @@ export default function App() {
                 <button className="btn small" onClick={paste}>Coller mon texte</button>
                 {!empty && <button className="link" onClick={() => { setText(''); setCover({ title: '' }); taRef.current?.focus() }}>Tout effacer</button>}
               </div>
-              <textarea ref={taRef} value={text} onChange={e => setText(e.target.value)} spellCheck={false} aria-label="Ton texte" placeholder="Colle ton texte ici…" />
+              <textarea ref={taRef} value={text} onChange={e => onType(e.target.value)} spellCheck={false} aria-label="Ton texte" placeholder="Colle ton texte ici…" />
               {empty
                 ? <p className="hint">Copie ton texte depuis Word, un mail, un PDF ou tes notes, puis colle-le ici. Tout le reste est automatique.</p>
                 : <p className="hint found">{heads} titre{heads > 1 ? 's' : ''} · {tables} tableau{tables > 1 ? 'x' : ''}{pages ? ` · ${pages} page${pages > 1 ? 's' : ''}` : ''}</p>}
@@ -368,7 +379,7 @@ export default function App() {
                 <ul>
                   <li><b>Titres</b> : « CHAPITRE 1 », « I. », « A. », « 1.1 » sont reconnus. Tu peux aussi écrire <code># Titre</code> et <code>## Sous-titre</code>.</li>
                   <li><b>Tableaux</b> : copie-les depuis Word, Excel ou un PDF et colle-les. Ajoute « Tableau : titre » juste avant pour la légende.</li>
-                  <li><b>Page de garde</b> : écris « Thème : … », « Présenté par : … » au début, elle se remplit toute seule.</li>
+                  <li><b>Page de garde</b> : colle ton texte avec « Thème : … », « Présenté par : … » au début, elle se remplit toute seule dans l’onglet Page de garde, où tu peux tout modifier.</li>
                   <li><b>Gras</b> : entoure un mot de deux étoiles, <code>**comme ça**</code>.</li>
                 </ul>
               </details>
@@ -377,16 +388,16 @@ export default function App() {
 
           {tab === 'garde' && (
             <div className="form">
-              <Check label="Ajouter une page de garde" checked={sEff.cover.enabled} disabled={hasFound} onChange={v => setCover({ enabled: v })} />
+              <Check label="Ajouter une page de garde" checked={sEff.cover.enabled} onChange={v => setCover({ enabled: v })} />
               {sEff.cover.enabled && (
                 <>
-                  {hasFound && <p className="note">Page de garde lue dans ton texte : les champs détectés se remplissent tout seuls (modifie-les dans ton texte).</p>}
-                  <Field label="Établissement ou société"><input value={sEff.cover.school} readOnly={!!found.school} onChange={e => setCover({ school: e.target.value })} placeholder="Nom de l’établissement" /></Field>
-                  <Field label="Type de document"><input value={sEff.cover.kind} readOnly={!!found.kind} onChange={e => setCover({ kind: e.target.value })} placeholder="RAPPORT, DOSSIER, MÉMOIRE…" /></Field>
-                  <Field label="Titre"><textarea rows={3} value={sEff.cover.title} readOnly={!!found.title} onChange={e => setCover({ title: e.target.value })} placeholder="Le titre de ton document" /></Field>
-                  <Field label="Présenté par"><input value={sEff.cover.author} readOnly={!!found.author} onChange={e => setCover({ author: e.target.value })} /></Field>
-                  <Field label="Encadreur ou responsable"><input value={sEff.cover.supervisor} readOnly={!!found.supervisor} onChange={e => setCover({ supervisor: e.target.value })} /></Field>
-                  <Field label="Année"><input value={sEff.cover.year} readOnly={!!found.year} onChange={e => setCover({ year: e.target.value })} placeholder="2025-2026" /></Field>
+                  <Field label="Établissement ou société"><input value={sEff.cover.school} onChange={e => setCover({ school: e.target.value })} placeholder="Nom de l’établissement" /></Field>
+                  <Field label="Type de document"><input value={sEff.cover.kind} onChange={e => setCover({ kind: e.target.value })} placeholder="RAPPORT, DOSSIER, MÉMOIRE…" /></Field>
+                  <Field label="Titre"><textarea rows={3} value={sEff.cover.title} onChange={e => setCover({ title: e.target.value })} placeholder="Le titre de ton document" /></Field>
+                  <Field label="Présenté par"><input value={sEff.cover.author} onChange={e => setCover({ author: e.target.value })} /></Field>
+                  <Field label="Groupe / filière"><input value={sEff.cover.group ?? ''} onChange={e => setCover({ group: e.target.value })} placeholder="Licence 3 Logistique" /></Field>
+                  <Field label="Encadreur ou responsable"><input value={sEff.cover.supervisor} onChange={e => setCover({ supervisor: e.target.value })} /></Field>
+                  <Field label="Année"><input value={sEff.cover.year} onChange={e => setCover({ year: e.target.value })} placeholder="2025-2026" /></Field>
                   <Field label="Logo (PNG ou JPG)">
                     <input type="file" accept="image/png,image/jpeg" onChange={e => onLogo(e.target.files?.[0])} />
                     {s.cover.logo && <button className="link" onClick={() => setCover({ logo: undefined })}>Retirer le logo</button>}

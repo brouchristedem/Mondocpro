@@ -73,3 +73,14 @@ assert.equal(tables('Il faut :\n\n- les flux physiques ;\n- les flux d’informa
 assert.equal(tables('les routes ; les ports ;\nles rails ; les airs ;\nles mers ; les lacs ;').length, 0)
 // deux lignes seulement : pas assez pour affirmer que c'est un tableau
 assert.equal(tables('Poste        Montant\nTransport    1 200').length, 0)
+
+// hiérarchie EXERCICE > A. > 1. (devoir type atelier) : niveaux 1, 2, 3 jamais aplatis
+const hd = (src: string) => (parse(src) as (Any & { level?: number })[]).filter(b => b.t === 'h').map(b => `${b.level}:${b.text}`)
+assert.deepEqual(hd('EXERCICE 1 : DÉFINITIONS\n\nA. Complétez\n\nTexte.\n\nB. QCM\n\nTexte.\n\nEXERCICE 2 : COMPARAISON\n\n1. Logistique militaire\n\nTexte.\n\n2. Logistique civile\n\nTexte.\n\nCONCLUSION\n\nFin.'),
+  ['1:EXERCICE 1 : DÉFINITIONS', '2:A. Complétez', '2:B. QCM', '1:EXERCICE 2 : COMPARAISON', '2:1. Logistique militaire', '2:2. Logistique civile', '1:CONCLUSION'])
+// questions suivies de « Réponse : » : énoncé en gras, jamais un titre ; étiquettes « Finalité : » en gras
+assert.deepEqual(kinds('1. Quelle est la bonne réponse ?\nRéponse : b)\nJustification : parce que.\n\n2. Autre question ?\nRéponse : a)'), ['p', 'p', 'p', 'p', 'p'])
+assert.deepEqual((parse('A. Titre\n\nFinalité : sauver des vies.\nContexte : urgence.') as Any[]).map(b => b.text).slice(1), ['**Finalité :** sauver des vies.', '**Contexte :** urgence.'])
+// « 1.la » collé sans espace : paragraphe, pas de texte perdu
+assert.deepEqual((parse('Services :\n1.la nourriture ;\n2.les soins.') as Any[]).map(b => b.text), ['Services :', '1. la nourriture ;', '2. les soins.'])
+console.log('parseur hiérarchie : OK')

@@ -336,6 +336,7 @@ export async function layoutDocument(blocks: Block[], s: Settings): Promise<Layo
     if (c.kind.trim()) parts.push(ctr(c.kind.toUpperCase(), s.size + 2, { bold: true, before: 24, after: 240 }))
     if (c.title.trim()) parts.push(`<div style="${base(s.size + 8, natural(s.size + 8) * 1.25, 'text-align:center;font-weight:700;border-top:1pt solid #000;border-bottom:1pt solid #000;padding:12pt 0;margin:6pt 0 30pt;')}">${esc(c.title)}</div>`)
     if (c.author.trim()) parts.push(ctr(`Présenté par : ${c.author}`, s.size, { before: 12 }))
+    if (c.group?.trim()) parts.push(ctr(`Filière : ${c.group}`, s.size))
     if (c.supervisor.trim()) parts.push(ctr(`Encadreur : ${c.supervisor}`, s.size))
     if (c.year.trim()) parts.push(ctr(`Année académique : ${c.year}`, s.size, { before: 24 }))
     const html = `<div class="sheet" style="width:${pt(A4.w)}pt;height:${pt(A4.h)}pt;"><div class="bd" style="left:${pt(m.left)}pt;right:${pt(m.right)}pt;top:${pt(m.top)}pt;height:${bodyH(false)}pt;">${parts.join('')}</div></div>`

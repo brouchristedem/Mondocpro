@@ -12,8 +12,19 @@ const HR = /^([-*_])(\s*\1){2,}$/
 /** Numéro d'une ligne « 3. texte » ou « 3) texte » (sinon null). */
 const listNo = (l: string): number | null => { const m = l.match(/^(\d{1,2})[.)]\s+\S/); return m ? Number(m[1]) : null }
 
-const ORDER = ['chap', 'roman', 'letter', 'dec1', 'dec2', 'dec3'] as const
-type Kind = (typeof ORDER)[number] | 'special' | 'caps'
+type Kind = 'chap' | 'roman' | 'letter' | 'dec1' | 'dec2' | 'dec3' | 'special' | 'caps'
+/** Plus le rang est petit, plus le titre est haut dans la hiérarchie (un titre « EXERCICE 1 » contient « A. », qui contient « 1. »). */
+const RANK: Record<Kind, number> = { special: 0, caps: 0, chap: 0, roman: 1, letter: 2, dec1: 3, dec2: 4, dec3: 5 }
+
+/** « Réponse : … », « Finalité : … » : une ligne qui commence par une courte étiquette devient son propre paragraphe, étiquette en gras. */
+const LABEL = /^([A-ZÀ-Ý][^:.;!?«»"()\d]{0,34}?)\s*:\s+(\S.*)$/
+const labelOf = (l: string): RegExpMatchArray | null => {
+  const m = l.match(LABEL)
+  return m && m[1].trim().split(/\s+/).length <= 5 && !CAPTION.test(l) && !m[1].includes('*') ? m : null
+}
+const ANSWER = /^(r[ée]ponses?|justification|solution|corrig[ée]|explication)\s*:/i
+/** Item de liste collé sans espace après le numéro (« 1.la fourniture… »). */
+const NOSPACE_ITEM = /^(\d{1,2})[.)]([A-Za-zÀ-ÿ«"'’])/
 
 function kindOf(line: string): Kind | null {
   if (line.length > 100 || /[.;,:]$/.test(line)) return null
@@ -190,12 +201,20 @@ export function parse(src: string): Block[] {
   const hasBlank = lines.some(l => l.trim() === '')
   const explicit = lines.some(l => /^#{1,4}\s+\S/.test(l))
 
-  // niveaux automatiques : seules les familles présentes comptent
-  const present = new Set<Kind>()
-  if (!explicit) for (const l of lines) { const k = kindOf(l.trim()); if (k && k !== 'special' && k !== 'caps') present.add(k) }
-  const rank = ORDER.filter(k => present.has(k))
-  const levelFor = (k: Kind): 1 | 2 | 3 | 4 =>
-    k === 'special' || k === 'caps' ? 1 : (Math.min(rank.indexOf(k) + 1, 4) as 1 | 2 | 3 | 4)
+  // niveaux automatiques : hiérarchie construite au fil du texte (EXERCICE > A. > 1.), sans sauter de niveau
+  const stack: number[] = []
+  let lastDec1 = 0
+  const levelFor = (k: Kind): 1 | 2 | 3 | 4 => {
+    const r = RANK[k]
+    if (k === 'special') return 1 // Introduction, Conclusion… : toujours au 1er niveau, sans changer la hiérarchie en cours
+    while (stack.length && stack[stack.length - 1] >= r) stack.pop()
+    stack.push(r)
+    return Math.min(stack.length, 4) as 1 | 2 | 3 | 4
+  }
+  // un texte avec lignes vides ET lignes très longues vient de Word (1 ligne = 1 paragraphe) ; sinon c'est du texte à retour de ligne automatique
+  const maxLen = lines.reduce((m, l) => (l.includes('\t') || l.includes('|') ? m : Math.max(m, l.trim().length)), 0)
+  const soft = hasBlank && maxLen <= 140
+  const nextLine = (i: number) => { let j = i + 1; while (j < lines.length && !lines[j].trim()) j++; return j < lines.length ? lines[j].trim() : '' }
 
   const out: Block[] = []
   let para: string[] = []
@@ -261,19 +280,35 @@ export function parse(src: string): Block[] {
 
     if (/^([-•*–])\s+\S/.test(line)) { flush(); out.push({ t: 'li', text: line.replace(/^([-•*–])\s+/, '') }); continue }
 
+    const ns = line.match(NOSPACE_ITEM)
+    if (ns) { flush(); out.push({ t: 'p', text: `${ns[1]}. ${line.slice(ns[0].length - 1)}` }); continue }
+
     // liste numérotée (1. … 2. … sur des lignes qui se suivent) : un paragraphe par ligne, jamais un titre
     const n = listNo(line)
     if (n !== null && (listNo((lines[i - 1] ?? '').trim()) === n - 1 || listNo((lines[i + 1] ?? '').trim()) === n + 1)) {
       flush(); out.push({ t: 'p', text: line }); continue
     }
+    // question numérotée suivie de « Réponse : … » : énoncé en gras, pas un titre (sinon le sommaire se remplit de questions)
+    if (n !== null && ANSWER.test(nextLine(i))) { flush(); out.push({ t: 'p', text: `**${line}**` }); continue }
 
     if (!explicit) {
-      const k = kindOf(line)
-      if (k) { flush(); out.push({ t: 'h', level: levelFor(k), text: line }); continue }
+      let k = kindOf(line)
+      // « 2. … » qui suit un titre « 1. … » du même niveau : titre aussi, même s'il finit par un point ou est un peu long
+      if (!k && n !== null && lastDec1 > 0 && n === lastDec1 + 1 && line.length <= 160 && !/[;,:]$/.test(line)) k = 'dec1'
+      if (k) {
+        flush()
+        if (k === 'dec1') lastDec1 = n ?? Number(line.match(/^\d+/)?.[0] ?? 0)
+        else if (RANK[k] < 3) lastDec1 = 0
+        out.push({ t: 'h', level: levelFor(k), text: line }); continue
+      }
     }
 
-    if (hasBlank) { para.push(line); if (line.endsWith(';')) flush() } // « ; » en fin de ligne = élément d'une énumération
-    else out.push({ t: 'p', text: line })
+    const lb = labelOf(line)
+    const text = lb ? `**${lb[1].trim()} :** ${lb[2]}` : line
+    if (soft) {
+      if (lb && para.length && /[.!?»:;)]$/.test(para[para.length - 1])) flush()
+      para.push(text); if (line.endsWith(';')) flush() // « ; » en fin de ligne = élément d'une énumération
+    } else out.push({ t: 'p', text })
   }
   flush()
   return out
