@@ -252,7 +252,7 @@ export async function layoutDocument(blocks: Block[], s: Settings): Promise<Layo
       `<span style="flex:1 1 12pt;border-bottom:1.2pt dotted #000;margin:0 2pt 3.5pt;min-width:12pt;"></span><span style="flex:none;">${n}</span></div>`
     return { kind: 'para', before: 0, after: 4, keepNext: false, pageBreakBefore: false, lines, lh, html: mk(''), late: l => mk(getNum(l)) }
   }
-  const tocItems = P.headings.map((h, i) => ({ ...h, i })).filter(h => h.level <= 3)
+  const tocItems = P.headings.map((h, i) => ({ ...h, i })).filter(h => h.level <= 4)
   if (s.toc && P.headings.length) {
     frontBoxes.push(titleBox('SOMMAIRE', false))
     for (const h of tocItems) frontBoxes.push(entryBox(h.text, h.level, l => l.headings[h.i] ?? '', h.level === 1))
@@ -338,6 +338,7 @@ export async function layoutDocument(blocks: Block[], s: Settings): Promise<Layo
     if (c.author.trim()) parts.push(ctr(`Présenté par : ${c.author}`, s.size, { before: 12 }))
     if (c.group?.trim()) parts.push(ctr(`Filière : ${c.group}`, s.size))
     if (c.supervisor.trim()) parts.push(ctr(`Encadreur : ${c.supervisor}`, s.size))
+    for (const x of c.extras ?? []) if (x.trim()) parts.push(ctr(x, s.size))
     if (c.year.trim()) parts.push(ctr(`Année académique : ${c.year}`, s.size, { before: 24 }))
     const html = `<div class="sheet" style="width:${pt(A4.w)}pt;height:${pt(A4.h)}pt;"><div class="bd" style="left:${pt(m.left)}pt;right:${pt(m.right)}pt;top:${pt(m.top)}pt;height:${bodyH(false)}pt;">${parts.join('')}</div></div>`
     return { kind: 'cover', landscape: false, label: '', html }

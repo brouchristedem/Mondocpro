@@ -1,20 +1,104 @@
 import type { Block } from './types'
 
-const SPECIAL = /^(introduction|conclusion|remerciements?|d[ée]dicace|r[ée]sum[ée]|abstract|sommaire|bibliographie|webographie|annexes?|avant-propos|liste des .+|table des mati[èe]res)( g[ée]n[ée]rale)?$/i
-const CHAP = /^(chapitre|partie|section)\s+[\dIVXLC]+\b/i
-const ROMAN = /^(I{1,3}|IV|VI{0,3}|IX|X)\s*[.)\-–]\s+\S/
-const LETTER = /^[A-Z]\s*[.)]\s+\S/
-const DEC1 = /^\d{1,2}\s*[.)]\s+\S/
-const DEC2 = /^\d{1,2}\.\d{1,2}\.?\s+\S/
-const DEC3 = /^\d{1,2}\.\d{1,2}\.\d{1,2}\.?\s+\S/
+const SPECIAL = /^(introduction|conclusion|remerciements?|d[ée]dicaces?|r[ée]sum[ée]|abstract|sommaire|bibliographie|webographie|r[ée]f[ée]rences( bibliographiques)?|annexes?|glossaire|avant-propos|pr[ée]face|postface|liste des .+|table des (mati[èe]res|illustrations|figures|tableaux)|sigles et abr[ée]viations|abr[ée]viations)( g[ée]n[ée]rale)?$/i
+const PART = /^(partie|titre|livre|exercice|annexe|probl[eè]me|cas pratique)\s+(\d{1,2}|[IVXLC]{1,5}|[A-Z])\b/i
+const CHAP = /^(chapitre|chap\.|section|question|[ée]tape|fiche|s[ée]quence|activit[ée]|travail|axe|unit[ée]|le[çc]on|article)\s+(\d{1,3}|[IVXLC]{1,5}|[A-Z])\b/i
+const NUMH = /^(\d{1,2}(?:\.\d{1,2}){0,3})(?:(\s*(?:\.-|[.)\-–—/°]))|(\s))\s*(\S.*)$/
+const ROMANH = /^([IVX]{1,5})\s*(?:\.-|[.)\-–—/])\s*(\S.*)$/
+const LETTERH = /^([A-Z])\s*(?:[.)\-–—/])\s+(\S.*)$/
 const CAPTION = /^tableau\s*\d*\s*[:.\-–—]?\s*(.*)$/i
 const HR = /^([-*_])(\s*\1){2,}$/
 /** Numéro d'une ligne « 3. texte » ou « 3) texte » (sinon null). */
 const listNo = (l: string): number | null => { const m = l.match(/^(\d{1,2})[.)]\s+\S/); return m ? Number(m[1]) : null }
+const UPPER_START = /^[A-ZÀ-ÝŒ«“"‘(*\d]/
+const ROMAN_VAL: Record<string, number> = { I: 1, II: 2, III: 3, IV: 4, V: 5, VI: 6, VII: 7, VIII: 8, IX: 9, X: 10, XI: 11, XII: 12, XIII: 13, XIV: 14, XV: 15, XVI: 16, XVII: 17, XVIII: 18, XIX: 19, XX: 20 }
+const words = (t: string) => t.trim().split(/\s+/).length
 
-type Kind = 'chap' | 'roman' | 'letter' | 'dec1' | 'dec2' | 'dec3' | 'special' | 'caps'
-/** Plus le rang est petit, plus le titre est haut dans la hiérarchie (un titre « EXERCICE 1 » contient « A. », qui contient « 1. »). */
-const RANK: Record<Kind, number> = { special: 0, caps: 0, chap: 0, roman: 1, letter: 2, dec1: 3, dec2: 4, dec3: 5 }
+type Kind = 'part' | 'chap' | 'roman' | 'letter' | 'dec' | 'special' | 'caps' | 'plain'
+export interface Head { kind: Kind; depth: number; rank: number; text: string }
+/** Rang : plus il est petit, plus le titre est haut (PARTIE > CHAPITRE > I. > A. > 1. > 1.1 > 1.1.1 > titre sans numéro). */
+const RANK = { part: 0, chap: 1, roman: 2, letter: 3, dec: 4, special: 0, caps: 0, plain: 9 } as const
+
+/** Ce que le document contient déjà : sert à trancher les cas ambigus (« 1 Titre » sans point, « I. » romain ou lettre, « C. » initiale…). */
+export interface Ctx { letters: Set<string>; romans: Set<number>; plain: Set<number>; parents: Set<number>; delim: Set<number> }
+export function scan(lines: string[]): Ctx {
+  const c: Ctx = { letters: new Set(), romans: new Set(), plain: new Set(), parents: new Set(), delim: new Set() }
+  for (const raw of lines) {
+    const t = raw.replace(/^(\*\*|__)(.+)\1$/, '$2').trim()
+    if (!t || t.length > 120 || raw.includes('\t') || t.includes('|')) continue
+    let m = t.match(NUMH)
+    if (m && UPPER_START.test(m[4])) {
+      const parts = m[1].split('.')
+      if (parts.length > 1) c.parents.add(Number(parts[0]))
+      else if (m[2]) c.delim.add(Number(parts[0]))
+      else if (!m[2] && !/[.;,:]$/.test(t)) c.plain.add(Number(parts[0]))
+      continue
+    }
+    if ((m = t.match(ROMANH)) && UPPER_START.test(m[2]) && ROMAN_VAL[m[1]]) c.romans.add(ROMAN_VAL[m[1]])
+    if ((m = t.match(LETTERH)) && UPPER_START.test(m[2])) c.letters.add(m[1])
+  }
+  return c
+}
+const prevL = (l: string) => String.fromCharCode(l.charCodeAt(0) - 1)
+const nextL = (l: string) => String.fromCharCode(l.charCodeAt(0) + 1)
+
+/**
+ * Reconnaît un titre ET son niveau logique à partir de la seule ligne (+ contexte du document).
+ * `iso` = ligne seule entre deux lignes vides ; `loose` = autoriser les titres sans numérotation (MAJUSCULES, gras, ligne courte isolée).
+ */
+export function headOf(raw: string, ctx?: Ctx, iso = false, loose = true, nextLong = false, edge = iso): Head | null {
+  let line = raw.trim()
+  const bold = line.match(/^(\*\*|__)(.+?)\1$/)
+  if (bold) line = bold[2].trim().replace(/\*\*/g, '')
+  if (!line || line.length > 120 || HR.test(line)) return null
+  const core = line.replace(/[\s:.\-–—]+$/, '')
+  if (SPECIAL.test(core)) return { kind: 'special', depth: 1, rank: 0, text: line.replace(/[\s:]+$/, '') }
+  if (/[;,:]$/.test(line)) return null
+  const period = /[.…]$/.test(line)
+  if (period) {
+    // « 2. Citez les étapes… humanitaire. » : une question numérotée qui finit par un point reste un titre si ses voisines « 1. » / « 3. » existent
+    const nm = line.match(/^(\d{1,2})[.)]\s/)
+    const sib = !!(nm && ctx && (ctx.delim.has(Number(nm[1]) - 1) || ctx.delim.has(Number(nm[1]) + 1)))
+    if (!(edge && (words(line) <= 10 || (sib && words(line) <= 16)))) return null
+  }
+
+  let m: RegExpMatchArray | null
+  if ((m = line.match(PART)) && !/[a-z]/.test(m[2])) return { kind: 'part', depth: 1, rank: RANK.part, text: line }
+  if ((m = line.match(CHAP)) && !/[a-z]/.test(m[2])) return { kind: 'chap', depth: 1, rank: RANK.chap, text: line }
+
+  if ((m = line.match(NUMH))) {
+    const depth = m[1].split('.').length
+    const n = Number(m[1].split('.')[0])
+    const hasDelim = !!m[2]
+    if (UPPER_START.test(m[4]) && words(m[4]) <= 20) {
+      if (depth > 1 || hasDelim) return { kind: 'dec', depth, rank: RANK.dec + depth - 1, text: line }
+      // « 1 Titre » sans ponctuation : titre seulement si le document a aussi « 2 … » / « 1.1 … »
+      if (ctx && (ctx.plain.has(n - 1) || ctx.plain.has(n + 1) || ctx.parents.has(n))) return { kind: 'dec', depth: 1, rank: RANK.dec, text: line }
+    }
+    return null
+  }
+
+  const rm = line.match(ROMANH), lm = line.match(LETTERH)
+  if (rm && UPPER_START.test(rm[2]) && ROMAN_VAL[rm[1]] && words(rm[2]) <= 20) {
+    const v = ROMAN_VAL[rm[1]], L = rm[1]
+    const asLetter = L.length === 1 && ctx && (ctx.letters.has(prevL(L)) || ctx.letters.has(nextL(L))) && !(ctx.romans.has(v - 1) || ctx.romans.has(v + 1))
+    if (!asLetter && (!ctx || ctx.romans.has(v - 1) || ctx.romans.has(v + 1))) return { kind: 'roman', depth: 1, rank: RANK.roman, text: line }
+    if (asLetter) return { kind: 'letter', depth: 1, rank: RANK.letter, text: line }
+  } else if (lm && UPPER_START.test(lm[2]) && !/^[A-Z]\./.test(lm[2]) && words(lm[2]) <= 20) {
+    const L = lm[1]
+    if (!ctx || (L === 'A' ? ctx.letters.has('B') : ctx.letters.has(prevL(L)) || ctx.letters.has(nextL(L)))) return { kind: 'letter', depth: 1, rank: RANK.letter, text: line }
+  }
+
+  if (!loose) return null
+  const letters = line.replace(/[^A-Za-zÀ-ÿ]/g, '')
+  if (letters.length >= 4 && line.length <= 80 && letters === letters.toUpperCase() && !period) return { kind: 'caps', depth: 1, rank: RANK.caps, text: line }
+  // titre sans numérotation : ligne courte, seule entre deux lignes vides, suivie d'un vrai texte (ou en gras)
+  const okShape = UPPER_START.test(line) && words(line) <= 12 && line.length <= 95 && !period && !/^[-•*–]/.test(line) && !CAPTION.test(line) && !/:\s*\S/.test(line) && !/^\d/.test(line)
+  if (ctx && okShape && (bold || (iso && nextLong))) return { kind: 'plain', depth: 1, rank: RANK.plain, text: line }
+  return null
+}
+/** Compatibilité (sommaire collé, page de garde) : le genre de titre d'une ligne, sans contexte. */
+export const kindOf = (line: string): Kind | null => headOf(line, undefined, false, true)?.kind ?? null
 
 /** « Réponse : … », « Finalité : … » : une ligne qui commence par une courte étiquette devient son propre paragraphe, étiquette en gras. */
 const LABEL = /^([A-ZÀ-Ý][^:.;!?«»"()\d]{0,34}?)\s*:\s+(\S.*)$/
@@ -25,20 +109,6 @@ const labelOf = (l: string): RegExpMatchArray | null => {
 const ANSWER = /^(r[ée]ponses?|justification|solution|corrig[ée]|explication)\s*:/i
 /** Item de liste collé sans espace après le numéro (« 1.la fourniture… »). */
 const NOSPACE_ITEM = /^(\d{1,2})[.)]([A-Za-zÀ-ÿ«"'’])/
-
-function kindOf(line: string): Kind | null {
-  if (line.length > 100 || /[.;,:]$/.test(line)) return null
-  if (SPECIAL.test(line)) return 'special'
-  if (CHAP.test(line)) return 'chap'
-  if (DEC3.test(line)) return 'dec3'
-  if (DEC2.test(line)) return 'dec2'
-  if (ROMAN.test(line)) return 'roman'
-  if (LETTER.test(line)) return 'letter'
-  if (DEC1.test(line)) return 'dec1'
-  const letters = line.replace(/[^A-Za-zÀ-ÿ]/g, '')
-  if (letters.length >= 4 && line.length <= 80 && letters === letters.toUpperCase()) return 'caps'
-  return null
-}
 
 function splitRow(line: string): string[] {
   if (line.includes('\t')) return line.split('\t').map(c => c.trim())
@@ -200,21 +270,29 @@ export function parse(src: string): Block[] {
   const lines = unflattenTables(alignColumns(stripToc(src.replace(/\r/g, '').split('\n').map(l => l.replace(/\s+$/, '')))))
   const hasBlank = lines.some(l => l.trim() === '')
   const explicit = lines.some(l => /^#{1,4}\s+\S/.test(l))
+  const ctx = scan(lines)
 
-  // niveaux automatiques : hiérarchie construite au fil du texte (EXERCICE > A. > 1.), sans sauter de niveau
+  // niveaux : hiérarchie construite au fil du texte (PARTIE > CHAPITRE > I. > A. > 1. > 1.1 …), sans jamais sauter de niveau
   const stack: number[] = []
-  let lastDec1 = 0
-  const levelFor = (k: Kind): 1 | 2 | 3 | 4 => {
-    const r = RANK[k]
-    if (k === 'special') return 1 // Introduction, Conclusion… : toujours au 1er niveau, sans changer la hiérarchie en cours
-    while (stack.length && stack[stack.length - 1] >= r) stack.pop()
-    stack.push(r)
-    return Math.min(stack.length, 4) as 1 | 2 | 3 | 4
+  const levelFor = (h: Head): 1 | 2 | 3 | 4 => {
+    if (h.kind === 'special') { stack.length = 0; return 1 } // Introduction, Conclusion… : toujours au 1er niveau, et repartent de zéro
+    while (stack.length && stack[stack.length - 1] >= h.rank) stack.pop()
+    const level = stack.length + 1 // toujours un cran sous le titre parent encore ouvert
+    stack.push(h.rank)
+    return Math.min(level, 4) as 1 | 2 | 3 | 4
   }
-  // un texte avec lignes vides ET lignes très longues vient de Word (1 ligne = 1 paragraphe) ; sinon c'est du texte à retour de ligne automatique
+  // un texte avec lignes vides ET lignes courtes vient d'un copier-coller à retours de ligne automatiques : on recolle les lignes d'un même paragraphe
   const maxLen = lines.reduce((m, l) => (l.includes('\t') || l.includes('|') ? m : Math.max(m, l.trim().length)), 0)
   const soft = hasBlank && maxLen <= 140
-  const nextLine = (i: number) => { let j = i + 1; while (j < lines.length && !lines[j].trim()) j++; return j < lines.length ? lines[j].trim() : '' }
+  const nextIdx = (i: number) => { let j = i + 1; while (j < lines.length && !lines[j].trim()) j++; return j }
+  const nextLine = (i: number) => { const j = nextIdx(i); return j < lines.length ? lines[j].trim() : '' }
+  const isoAt = (i: number) => hasBlank && (i === 0 || !lines[i - 1].trim()) && (i === lines.length - 1 || !lines[i + 1].trim())
+  const longAfter = (i: number) => {
+    const j = nextIdx(i)
+    if (j >= lines.length) return false
+    const t = lines[j].trim()
+    return t.length >= 40 || (t.length >= 20 && /[.!?»)]$/.test(t)) || isRowLine(lines[j]) || CAPTION.test(t) || /^([-•*–])\s+\S/.test(t) || headOf(t, ctx, isoAt(j), true, false) !== null
+  }
 
   const out: Block[] = []
   let para: string[] = []
@@ -276,7 +354,12 @@ export function parse(src: string): Block[] {
     }
 
     const md = line.match(/^(#{1,4})\s+(.*)$/)
-    if (md) { flush(); out.push({ t: 'h', level: md[1].length as 1 | 2 | 3 | 4, text: md[2] }); continue }
+    if (md) {
+      flush()
+      const L = md[1].length as 1 | 2 | 3 | 4
+      stack.length = 0; for (let k = 0; k < L; k++) stack.push(-1) // les titres numérotés qui suivent se placent sous ce titre
+      out.push({ t: 'h', level: L, text: md[2] }); continue
+    }
 
     if (/^([-•*–])\s+\S/.test(line)) { flush(); out.push({ t: 'li', text: line.replace(/^([-•*–])\s+/, '') }); continue }
 
@@ -285,23 +368,15 @@ export function parse(src: string): Block[] {
 
     // liste numérotée (1. … 2. … sur des lignes qui se suivent) : un paragraphe par ligne, jamais un titre
     const n = listNo(line)
-    if (n !== null && (listNo((lines[i - 1] ?? '').trim()) === n - 1 || listNo((lines[i + 1] ?? '').trim()) === n + 1)) {
+    if (n !== null && (listNo((lines[i - 1] ?? '').trim()) === n - 1 || listNo((lines[i + 1] ?? '').trim()) === n + 1) && !isoAt(i)) {
       flush(); out.push({ t: 'p', text: line }); continue
     }
     // question numérotée suivie de « Réponse : … » : énoncé en gras, pas un titre (sinon le sommaire se remplit de questions)
     if (n !== null && ANSWER.test(nextLine(i))) { flush(); out.push({ t: 'p', text: `**${line}**` }); continue }
 
-    if (!explicit) {
-      let k = kindOf(line)
-      // « 2. … » qui suit un titre « 1. … » du même niveau : titre aussi, même s'il finit par un point ou est un peu long
-      if (!k && n !== null && lastDec1 > 0 && n === lastDec1 + 1 && line.length <= 160 && !/[;,:]$/.test(line)) k = 'dec1'
-      if (k) {
-        flush()
-        if (k === 'dec1') lastDec1 = n ?? Number(line.match(/^\d+/)?.[0] ?? 0)
-        else if (RANK[k] < 3) lastDec1 = 0
-        out.push({ t: 'h', level: levelFor(k), text: line }); continue
-      }
-    }
+    const prevShort = (() => { let k = i - 1; while (k >= 0 && !lines[k].trim()) k--; const t = k >= 0 ? lines[k].trim() : ''; return t.length > 0 && t.length < 40 && !/[.!?:;»)]$/.test(t) && !isRowLine(lines[k]) && headOf(t, ctx, isoAt(k), true, false) === null })()
+    const h = headOf(line, ctx, isoAt(i), !explicit, longAfter(i) && !prevShort, hasBlank && (i === 0 || !lines[i - 1].trim()))
+    if (h) { flush(); out.push({ t: 'h', level: levelFor(h), text: h.text }); continue }
 
     const lb = labelOf(line)
     const text = lb ? `**${lb[1].trim()} :** ${lb[2]}` : line

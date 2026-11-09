@@ -113,13 +113,14 @@ export function buildDocument(blocks: Block[], s: Settings, nums?: PageNumbers):
     if (c.author.trim()) cover.push(centered(`Présenté par : ${c.author}`, s.size, { before: 240 }))
     if (c.group?.trim()) cover.push(centered(`Filière : ${c.group}`, s.size))
     if (c.supervisor.trim()) cover.push(centered(`Encadreur : ${c.supervisor}`, s.size))
+    for (const x of c.extras ?? []) if (x.trim()) cover.push(centered(x, s.size))
     if (c.year.trim()) cover.push(centered(`Année académique : ${c.year}`, s.size, { before: 480 }))
   }
 
   // ---- pages préliminaires : sommaire (rempli au moment de l'envoi, voir injectToc) + liste des tableaux ----
   const frontTitle = (t: string) => new Paragraph({ style: 'FrontTitle', children: [new TextRun(t)] })
   const prelim: Paragraph[] = []
-  const hasToc = s.toc && P.headings.some(h => h.level <= 3)
+  const hasToc = s.toc && P.headings.some(h => h.level <= 4)
   if (s.toc && P.headings.length) {
     prelim.push(frontTitle('SOMMAIRE'))
     if (hasToc) prelim.push(new Paragraph({ children: [new TextRun(TOC_MARK)] }))
@@ -181,7 +182,7 @@ export function buildDocument(blocks: Block[], s: Settings, nums?: PageNumbers):
         { id: 'Caption', name: 'Caption', basedOn: 'Normal', next: 'Body', quickFormat: true, run: { font: f, size: half(s.size - 1), bold: true }, paragraph: { alignment: AlignmentType.CENTER, spacing: { before: 200, after: 100 } } },
         { id: 'TableText', name: 'Table Text', basedOn: 'Normal', run: { font: f }, paragraph: { spacing: { line: 252, lineRule: LineRuleType.AUTO } } },
         { id: 'FrontTitle', name: 'Front Title', basedOn: 'Normal', next: 'Body', run: { font: f, size: half(s.size + 4), bold: true }, paragraph: { alignment: AlignmentType.CENTER, spacing: { after: 360 } } },
-        tocStyle(1), tocStyle(2), tocStyle(3),
+        tocStyle(1), tocStyle(2), tocStyle(3), tocStyle(4),
       ],
     },
     sections,
@@ -196,11 +197,11 @@ async function injectToc(zip: JSZip, blocks: Block[], s: Settings, nums?: PageNu
   const st = zip.file('word/styles.xml')
   if (st) zip.file('word/styles.xml', (await st.async('string')).replace('<w:pPrDefault/>', '<w:pPrDefault><w:pPr><w:widowControl/></w:pPr></w:pPrDefault>'))
   const P = plan(blocks, s)
-  const items = P.headings.map((h, i) => ({ ...h, i })).filter(h => h.level <= 3)
+  const items = P.headings.map((h, i) => ({ ...h, i })).filter(h => h.level <= 4)
   const file = zip.file('word/document.xml')
   if (!file || !items.length) return
   let doc = await file.async('string')
-  const begin = '<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> TOC \\o "1-3" \\h \\z \\u </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r>'
+  const begin = '<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> TOC \\o "1-4" \\h \\z \\u </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r>'
   const end = '<w:r><w:fldChar w:fldCharType="end"/></w:r>'
   const paras = items.map((h, n) => {
     const id = tocId(h.i)

@@ -84,3 +84,42 @@ assert.deepEqual((parse('A. Titre\n\nFinalité : sauver des vies.\nContexte : ur
 // « 1.la » collé sans espace : paragraphe, pas de texte perdu
 assert.deepEqual((parse('Services :\n1.la nourriture ;\n2.les soins.') as Any[]).map(b => b.text), ['Services :', '1. la nourriture ;', '2. les soins.'])
 console.log('parseur hiérarchie : OK')
+
+// ===== Reconnaissance universelle des titres : quelle que soit la façon de numéroter, tout titre est reconnu au bon niveau =====
+const P = (l: string) => 'Texte du paragraphe assez long pour être clairement un paragraphe complet.' + l
+const H = (src: string) => (parse(src) as (Any & { level?: number })[]).filter(b => b.t === 'h').map(b => `${b.level}:${b.text}`)
+// « 1 » puis « 1.1 », sans point après le chiffre
+assert.deepEqual(H(`1 Introduction\n\n${P('')}\n\n1.1 Contexte\n\n${P('')}\n\n1.2 Objectifs\n\n${P('')}\n\n2 Analyse\n\n${P('')}\n\n2.1 Méthode\n\n${P('')}\n\n2.1.1 Outils\n\n${P('')}`),
+  ['1:1 Introduction', '2:1.1 Contexte', '2:1.2 Objectifs', '1:2 Analyse', '2:2.1 Méthode', '3:2.1.1 Outils'])
+// avec points, avec tirets, avec parenthèses
+assert.deepEqual(H(`1. Cadre\n\n${P('')}\n\n1.1. Définition\n\n${P('')}\n\n1.1.1. Détail\n\n${P('')}\n\n2. Méthode\n\n${P('')}`), ['1:1. Cadre', '2:1.1. Définition', '3:1.1.1. Détail', '1:2. Méthode'])
+assert.deepEqual(H(`1 - Cadre\n\n${P('')}\n\n1.1 - Définition\n\n${P('')}\n\n2 - Méthode\n\n${P('')}`), ['1:1 - Cadre', '2:1.1 - Définition', '1:2 - Méthode'])
+assert.deepEqual(H(`1) Cadre\n\n${P('')}\n\n2) Méthode\n\n${P('')}`), ['1:1) Cadre', '1:2) Méthode'])
+// I. > A. > 1.
+assert.deepEqual(H(`I. LE CADRE\n\n${P('')}\n\nA. Définitions\n\n${P('')}\n\n1. Logistique\n\n${P('')}\n\n2. Transport\n\n${P('')}\n\nB. Enjeux\n\n${P('')}\n\nII. LA MÉTHODE\n\n${P('')}\n\nA. Outils\n\n${P('')}`),
+  ['1:I. LE CADRE', '2:A. Définitions', '3:1. Logistique', '3:2. Transport', '2:B. Enjeux', '1:II. LA MÉTHODE', '2:A. Outils'])
+// PARTIE > Chapitre > 1.1
+assert.deepEqual(H(`PARTIE I : CADRE\n\nChapitre 1 : Concepts\n\n1.1 Définitions\n\n${P('')}\n\nChapitre 2 : Modèles\n\n${P('')}\n\nPARTIE II : PRATIQUE\n\nChapitre 3 : Étude\n\n${P('')}`),
+  ['1:PARTIE I : CADRE', '2:Chapitre 1 : Concepts', '3:1.1 Définitions', '2:Chapitre 2 : Modèles', '1:PARTIE II : PRATIQUE', '2:Chapitre 3 : Étude'])
+// titres sans numéro, en gras, avec point final, sans lignes vides, Markdown mélangé
+assert.deepEqual(H(`Introduction\n\n${P('')}\n\nLe contexte du projet\n\n${P('')}\n\nConclusion\n\n${P('')}`), ['1:Introduction', '1:Le contexte du projet', '1:Conclusion'])
+assert.deepEqual(H(`**Introduction**\n\n${P('')}\n\n**1. Le cadre**\n\n${P('')}\n\n**1.1 Définition**\n\n${P('')}`), ['1:Introduction', '1:1. Le cadre', '2:1.1 Définition'])
+assert.deepEqual(H(`1. Introduction.\n\n${P('')}\n\n2. Analyse du besoin.\n\n${P('')}`), ['1:1. Introduction.', '1:2. Analyse du besoin.'])
+assert.deepEqual(H('1. Introduction\nTexte de l’introduction.\n1.1 Contexte\nTexte du contexte.\n2. Analyse\nTexte.'), ['1:1. Introduction', '2:1.1 Contexte', '1:2. Analyse'])
+assert.deepEqual(H(`# Cadre\n\n${P('')}\n\n1.1 Définition\n\n${P('')}`), ['1:Cadre', '2:1.1 Définition'])
+// jamais de faux titres : phrase commençant par un nombre, date, liste à puces, options a) b)
+assert.deepEqual(H(`${P('')}\n\n10 conteneurs de 20 pieds ont été commandés pour la livraison.\n\n3 Mars 2024\n\n${P('')}`), [])
+assert.deepEqual(H(`Les gammes :\n\nJus de fruits\n\nConserves\n\nCéréales\n\nSuite du texte.`), [])
+assert.deepEqual(H(`${P('')}\n\na) première option\n\nb) seconde option\n\n${P('')}`), [])
+assert.deepEqual(H(`Il a dit que C. Ader avait raison dans son livre sur la logistique militaire ancienne.\n\n${P('')}`), [])
+// « I. » : lettre ou chiffre romain selon le contexte
+assert.deepEqual(H(`H. Huit\n\n${P('')}\n\nI. Neuf\n\n${P('')}\n\nJ. Dix\n\n${P('')}`), ['1:H. Huit', '1:I. Neuf', '1:J. Dix'])
+// aucun texte perdu : tous les mots du texte collé se retrouvent dans le résultat
+const words2 = (t: string) => t.replace(/\*\*/g, '').split(/\s+/).filter(Boolean)
+const mix = `1 Cadre\n\nTexte un deux trois.\n\n**Gras seul**\n\nRéponse : oui.\nFinalité : sauver.\n\n- puce\n\n1.la nourriture ;\n2.les soins.\n\nPoste\tN\nA\t1\nB\t2`
+const outW = parse(mix).flatMap(b => b.t === 'table' ? b.rows.flat().flatMap(words2) : words2((b as { text: string }).text)).join(' ')
+for (const w of words2(mix.replace(/\t/g, ' '))) assert.ok(outW.includes(w.replace(/[:]/g, '')) || /^[-1.2.]/.test(w), `mot perdu : ${w}`)
+// questions numérotées finissant par un point, texte collé directement dessous
+assert.deepEqual(H('QUESTIONS\n\n1. Pourquoi parle-t-on de dernière minute ?\nOn parle ainsi car les crises sont imprévisibles et rapides.\n\n2. Citez les étapes de la chaîne logistique communes à l’industrie.\nLes étapes sont : approvisionnement, stockage, transport.\n\n3. Quel est le point commun entre les deux ?\nLe point commun est la rapidité.'),
+  ['1:QUESTIONS', '2:1. Pourquoi parle-t-on de dernière minute ?', '2:2. Citez les étapes de la chaîne logistique communes à l’industrie.', '2:3. Quel est le point commun entre les deux ?'])
+console.log('reconnaissance universelle : OK')

@@ -396,6 +396,7 @@ export default function App() {
                   <Field label="Titre"><textarea rows={3} value={sEff.cover.title} onChange={e => setCover({ title: e.target.value })} placeholder="Le titre de ton document" /></Field>
                   <Field label="Présenté par"><input value={sEff.cover.author} onChange={e => setCover({ author: e.target.value })} /></Field>
                   <Field label="Groupe / filière"><input value={sEff.cover.group ?? ''} onChange={e => setCover({ group: e.target.value })} placeholder="Licence 3 Logistique" /></Field>
+                  <Field label="Autres lignes (une par ligne)"><textarea rows={2} value={(sEff.cover.extras ?? []).join('\n')} onChange={e => setCover({ extras: e.target.value.split('\n') })} placeholder="Module : Logistique humanitaire" /></Field>
                   <Field label="Encadreur ou responsable"><input value={sEff.cover.supervisor} onChange={e => setCover({ supervisor: e.target.value })} /></Field>
                   <Field label="Année"><input value={sEff.cover.year} onChange={e => setCover({ year: e.target.value })} placeholder="2025-2026" /></Field>
                   <Field label="Logo (PNG ou JPG)">

@@ -13,6 +13,7 @@ export interface Cover {
   title: string
   author: string
   group?: string
+  extras?: string[]
   supervisor: string
   year: string
   logo?: Logo
