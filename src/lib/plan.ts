@@ -1,14 +1,15 @@
-import type { Block, Settings } from './types'
+import { CELL_BR, type Block, type Settings } from './types'
 
 /** Mise en page commune au Word et à l'aperçu : un seul endroit décide ce qui va où. */
 export const A4 = { w: 11906, h: 16838 } // twips
 
 export type Item =
   | { k: 'h'; level: 1 | 2 | 3 | 4; text: string; idx: number; pageBreakBefore: boolean }
+  | { k: 'title'; text: string; sub: boolean }
   | { k: 'p'; text: string }
   | { k: 'li'; text: string }
   | { k: 'cap'; no: number; caption: string }
-  | { k: 'table'; no: number; rows: string[][]; colW: number[]; size: number; W: number }
+  | { k: 'table'; no: number; rows: string[][]; colW: number[]; size: number; W: number; merged: number[]; heads: number[] }
   | { k: 'gap' }
 
 export interface Segment { landscape: boolean; items: Item[] }
@@ -30,18 +31,21 @@ export const widthOf = (s: Settings, landscape: boolean) => {
  * Une colonne n'est jamais plus étroite que son mot le plus long (sinon les mots sont coupés au milieu) ;
  * l'espace restant est réparti selon la longueur du contenu.
  */
-export function columnWidths(rows: string[][], size: number, W: number): number[] {
+export function columnWidths(rows: string[][], size: number, W: number, skip: number[] = []): number[] {
   const char = size * 20 * 0.55 // largeur moyenne d'un caractère (gras compris), en twips
   const pad = 180 + 40 // marges gauche/droite de la cellule + bordures
   const n = rows[0].length
   const min: number[] = [], want: number[] = []
   for (let c = 0; c < n; c++) {
     let word = 1, line = 1
-    for (const r of rows) {
-      const t = (r[c] ?? '').replace(/\*+/g, '')
-      line = Math.max(line, t.length)
-      for (const w of t.split(/\s+/)) word = Math.max(word, w.length)
-    }
+    rows.forEach((r, ri) => {
+      if (skip.includes(ri)) return // ligne fusionnée : elle ne doit pas élargir la 1re colonne
+      // une cellule à plusieurs lignes (puces) compte par sa plus longue ligne
+      for (const part of (r[c] ?? '').replace(/\*+/g, '').split(CELL_BR)) {
+        line = Math.max(line, part.length)
+        for (const w of part.split(/\s+/)) word = Math.max(word, w.length)
+      }
+    })
     min.push(Math.min(word, 30) * char + pad)
     want.push(Math.max(Math.min(line, 40) * char + pad, min[c]))
   }
@@ -68,11 +72,11 @@ export function plan(blocks: Block[], s: Settings): Plan {
     const cols = b.rows[0].length
     const size = cols >= 7 ? 9 : cols >= 5 ? Math.max(9, s.size - 2) : Math.max(9, s.size - 1)
     const W = widthOf(s, landscape)
-    const colW = columnWidths(b.rows, size, W)
+    const colW = columnWidths(b.rows, size, W, b.merged ?? [])
     const out: Item[] = []
     tableNo++
     if (b.caption !== undefined) { captions.push(b.caption); out.push({ k: 'cap', no: captions.length, caption: b.caption }) }
-    out.push({ k: 'table', no: tableNo, rows: b.rows, colW, size, W })
+    out.push({ k: 'table', no: tableNo, rows: b.rows, colW, size, W, merged: b.merged ?? [], heads: b.heads ?? [] })
     out.push({ k: 'gap' })
     return out
   }
@@ -85,8 +89,10 @@ export function plan(blocks: Block[], s: Settings): Plan {
         segs.push({ landscape: true, items: tableItems(b, true) })
         segs.push({ landscape: false, items: [] })
       } else cur().items.push(...tableItems(b, false))
+    } else if (b.t === 'title') {
+      cur().items.push({ k: 'title', text: b.text, sub: !!b.sub })
     } else if (b.t === 'h') {
-      const first = cur().items.length === 0
+      const first = !cur().items.some(i => i.k !== 'title')
       cur().items.push({ k: 'h', level: b.level, text: b.text, idx: headings.length, pageBreakBefore: b.level === 1 && s.chapterBreak && !first })
       headings.push({ level: b.level, text: b.text })
     } else if (b.t === 'li') cur().items.push({ k: 'li', text: b.text })

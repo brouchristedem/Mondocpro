@@ -300,10 +300,12 @@ export default function App() {
   return (
     <>
       <header className="nav">
-        {HAS_BACKEND && (account
-          ? <button className="nav-btn left" onClick={() => { setDocs(listDocs()); setDialog('library') }}>Mon compte</button>
-          : <button className="nav-btn left" onClick={openLogin}>Connexion</button>)}
-        <a className="brand" href="#top"><Logo /><span>mondocpro</span></a>
+        <div className="nav-left">
+          {HAS_BACKEND && (account
+            ? <button className="nav-btn" onClick={() => { setDocs(listDocs()); setDialog('library') }}>Mon compte</button>
+            : <button className="nav-btn" onClick={openLogin}>Connexion</button>)}
+        </div>
+        <a className="brand" href="#top" aria-label="mondocpro, accueil"><Logo /><span>mondocpro</span></a>
         <div className="nav-right">
           {isAdmin && <button className="nav-btn" onClick={async () => { await loadAcc(); setDialog('admin') }}>Admin</button>}
           {!install.installed && <button className="nav-btn" onClick={goInstall}>Installer</button>}

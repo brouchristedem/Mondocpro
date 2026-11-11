@@ -1,4 +1,4 @@
-import type { Block, Settings } from './types'
+import { CELL_BR, type Block, type Settings } from './types'
 import { A4, plan, type Item, type Plan } from './plan'
 import { fontInfo, loadFont } from './fonts'
 
@@ -25,7 +25,7 @@ export const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;')
 export function inline(text: string): string {
   return text.split(/(\*\*[^*]+\*\*|\*[^*\s][^*]*\*)/).filter(Boolean).map(s =>
     s.startsWith('**') ? `<b>${esc(s.slice(2, -2))}</b>`
-      : s.startsWith('*') && s.length > 2 ? `<i>${esc(s.slice(1, -1))}</i>` : esc(s)).join('')
+      : s.startsWith('*') && s.length > 2 ? `<i>${esc(s.slice(1, -1))}</i>` : esc(s)).join('').split(CELL_BR).join('<br>')
 }
 
 const roman = (n: number) => {
@@ -113,7 +113,11 @@ export async function layoutDocument(blocks: Block[], s: Settings): Promise<Layo
     const w = textW(seg.landscape)
     const out: Box[] = []
     for (const it of seg.items) {
-      if (it.k === 'h') {
+      if (it.k === 'title') {
+        const size = s.size + (it.sub ? 2 : 6), lh = natural(size) * 1.15
+        const html = `<div style="${base(size, lh, `font-weight:${it.sub ? 400 : 700};font-style:${it.sub ? 'italic' : 'normal'};text-align:center;`)}">${esc(it.text)}</div>`
+        out.push(para({ before: it.sub ? 3 : 0, after: it.sub ? 18 : 6, keepNext: true, pageBreakBefore: false, html, size, lh, width: w }))
+      } else if (it.k === 'h') {
         const st = HSTY[it.level - 1]
         const size = s.size + st.d
         const lh = natural(size) * 1.15
@@ -142,12 +146,19 @@ export async function layoutDocument(blocks: Block[], s: Settings): Promise<Layo
 
   const tableBox = (it: Extract<Item, { k: 'table' }>): Tbl => {
     const lh = natural(it.size) * 1.05
+    const cols = it.colW.length
     const colgroup = `<colgroup>${it.colW.map(c => `<col style="width:${pt(c)}pt">`).join('')}</colgroup>`
     const W = it.colW.reduce((a, x) => a + x, 0)
     const open = `<table style="border-collapse:collapse;table-layout:fixed;width:${pt(W)}pt;">${colgroup}<tbody>`
-    const rows = it.rows.map((r, ri) => `<tr>${r.map(t =>
-      `<td style="border:0.5pt solid #000;padding:3pt 4.5pt;vertical-align:middle;">` +
-      `<div style="${base(it.size, lh, `text-align:${ri === 0 ? 'center' : 'left'};font-weight:${ri === 0 ? 700 : 400};overflow-wrap:anywhere;`)}">${inline(t)}</div></td>`).join('')}</tr>`)
+    const isHead = (ri: number) => ri === 0 || it.heads.includes(ri) || it.merged.includes(ri)
+    const rows = it.rows.map((r, ri) => {
+      const head = isHead(ri)
+      const fill = head && (cols >= 3 || it.merged.length) ? 'background:#F2F2F2;' : ''
+      const td = (t: string, span: number) =>
+        `<td${span > 1 ? ` colspan="${span}"` : ''} style="border:0.5pt solid #000;padding:3pt 4.5pt;vertical-align:middle;${fill}">` +
+        `<div style="${base(it.size, lh, `text-align:${head ? 'center' : 'left'};font-weight:${head ? 700 : 400};overflow-wrap:anywhere;`)}">${inline(t)}</div></td>`
+      return `<tr>${it.merged.includes(ri) ? td(r[0], cols) : r.map(t => td(t, 1)).join('')}</tr>`
+    })
     const d = measureBlock(pt(W), `${open}${rows.join('')}</tbody></table>`)
     const rowH = Array.from(d.querySelectorAll('tr')).map(tr => tr.getBoundingClientRect().height / PX - 0.25) // Chrome arrondit la bordure à 1px, Word/LO gardent 0,5 pt
     host.removeChild(d)

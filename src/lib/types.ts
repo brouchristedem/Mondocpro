@@ -1,8 +1,14 @@
+/** Saut de ligne à l'intérieur d'une cellule de tableau (cellule à puces copiée depuis Word). */
+export const CELL_BR = '\u2028'
+
 export type Block =
   | { t: 'h'; level: 1 | 2 | 3 | 4; text: string }
+  /** Titre du document (lignes en MAJUSCULES tout au début) : centré, jamais dans le sommaire. */
+  | { t: 'title'; text: string; sub?: boolean }
   | { t: 'p'; text: string }
   | { t: 'li'; text: string }
-  | { t: 'table'; rows: string[][]; caption?: string }
+  /** merged : lignes dont la cellule occupe toute la largeur (organigramme) ; heads : lignes de titres en plus de la 1re. */
+  | { t: 'table'; rows: string[][]; caption?: string; merged?: number[]; heads?: number[] }
 
 export interface Logo { url: string; w: number; h: number }
 

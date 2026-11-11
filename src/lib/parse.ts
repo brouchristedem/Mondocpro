@@ -1,6 +1,10 @@
-import type { Block } from './types'
+import { CELL_BR, type Block } from './types'
 
-const SPECIAL = /^(introduction|conclusion|remerciements?|d[ée]dicaces?|r[ée]sum[ée]|abstract|sommaire|bibliographie|webographie|r[ée]f[ée]rences( bibliographiques)?|annexes?|glossaire|avant-propos|pr[ée]face|postface|liste des .+|table des (mati[èe]res|illustrations|figures|tableaux)|sigles et abr[ée]viations|abr[ée]viations)( g[ée]n[ée]rale)?$/i
+const SPECIAL = /^(introduction|conclusion|remerciements?|d[ée]dicaces?|r[ée]sum[ée]|abstract|sommaire|bibliographie|webographie|r[ée]f[ée]rences( bibliographiques)?|sources?( (utilis[ée]es?|consult[ée]es?|principales))?|annexes?|glossaire|avant-propos|pr[ée]face|postface|liste des .+|table des (mati[èe]res|illustrations|figures|tableaux)|sigles et abr[ée]viations|abr[ée]viations)( g[ée]n[ée]rale)?$/i
+/** « Introduction et diagnostic du cas », « Conclusion du chapitre » : titres de début et de fin, même avec un complément. */
+const INTRO_X = /^(introduction|conclusion)( g[ée]n[ée]rale)? (et|du|de|des|au|aux|à|sur)\b[^.:;!?]{3,60}$/i
+/** « Recommandation 1 : … », « Objectif 2 : … » : sous-titres numérotés, un cran sous le titre en cours. */
+const ITEM = /^(recommandations?|propositions?|pistes?|solutions?|objectifs?|constats?|hypoth[èe]ses?|enjeux?|avantages?|inconv[ée]nients?|limites?)\s+(\d{1,2}|[IVX]{1,4})\s*[:.\-–—)]\s*\S/i
 const PART = /^(partie|titre|livre|exercice|annexe|probl[eè]me|cas pratique)\s+(\d{1,2}|[IVXLC]{1,5}|[A-Z])\b/i
 const CHAP = /^(chapitre|chap\.|section|question|[ée]tape|fiche|s[ée]quence|activit[ée]|travail|axe|unit[ée]|le[çc]on|article)\s+(\d{1,3}|[IVXLC]{1,5}|[A-Z])\b/i
 const NUMH = /^(\d{1,2}(?:\.\d{1,2}){0,3})(?:(\s*(?:\.-|[.)\-–—/°]))|(\s))\s*(\S.*)$/
@@ -14,10 +18,10 @@ const UPPER_START = /^[A-ZÀ-ÝŒ«“"‘(*\d]/
 const ROMAN_VAL: Record<string, number> = { I: 1, II: 2, III: 3, IV: 4, V: 5, VI: 6, VII: 7, VIII: 8, IX: 9, X: 10, XI: 11, XII: 12, XIII: 13, XIV: 14, XV: 15, XVI: 16, XVII: 17, XVIII: 18, XIX: 19, XX: 20 }
 const words = (t: string) => t.trim().split(/\s+/).length
 
-type Kind = 'part' | 'chap' | 'roman' | 'letter' | 'dec' | 'special' | 'caps' | 'plain'
+type Kind = 'part' | 'chap' | 'roman' | 'letter' | 'dec' | 'special' | 'caps' | 'plain' | 'item'
 export interface Head { kind: Kind; depth: number; rank: number; text: string }
 /** Rang : plus il est petit, plus le titre est haut (PARTIE > CHAPITRE > I. > A. > 1. > 1.1 > 1.1.1 > titre sans numéro). */
-const RANK = { part: 0, chap: 1, roman: 2, letter: 3, dec: 4, special: 0, caps: 0, plain: 9 } as const
+const RANK = { part: 0, chap: 1, roman: 2, letter: 3, dec: 4, item: 6, special: 0, caps: 0, plain: 9 } as const
 
 /** Ce que le document contient déjà : sert à trancher les cas ambigus (« 1 Titre » sans point, « I. » romain ou lettre, « C. » initiale…). */
 export interface Ctx { letters: Set<string>; romans: Set<number>; plain: Set<number>; parents: Set<number>; delim: Set<number> }
@@ -52,7 +56,7 @@ export function headOf(raw: string, ctx?: Ctx, iso = false, loose = true, nextLo
   if (bold) line = bold[2].trim().replace(/\*\*/g, '')
   if (!line || line.length > 120 || HR.test(line)) return null
   const core = line.replace(/[\s:.\-–—]+$/, '')
-  if (SPECIAL.test(core)) return { kind: 'special', depth: 1, rank: 0, text: line.replace(/[\s:]+$/, '') }
+  if (SPECIAL.test(core) || INTRO_X.test(core)) return { kind: 'special', depth: 1, rank: 0, text: line.replace(/[\s:]+$/, '') }
   if (/[;,:]$/.test(line)) return null
   const period = /[.…]$/.test(line)
   if (period) {
@@ -65,6 +69,7 @@ export function headOf(raw: string, ctx?: Ctx, iso = false, loose = true, nextLo
   let m: RegExpMatchArray | null
   if ((m = line.match(PART)) && !/[a-z]/.test(m[2])) return { kind: 'part', depth: 1, rank: RANK.part, text: line }
   if ((m = line.match(CHAP)) && !/[a-z]/.test(m[2])) return { kind: 'chap', depth: 1, rank: RANK.chap, text: line }
+  if (ITEM.test(line) && words(line) <= 16 && !/[a-z]/.test(line.match(ITEM)![2])) return { kind: 'item', depth: 1, rank: RANK.item, text: line }
 
   if ((m = line.match(NUMH))) {
     const depth = m[1].split('.').length
@@ -266,8 +271,108 @@ export function alignColumns(lines: string[]): string[] {
   return out
 }
 
+/* ---------- tableaux copiés depuis Word : cellules à puces, organigramme, titre du document ---------- */
+const BULLET = /^[•·▪●■◦○▫]\s*\S/
+const isBullet = (l: string) => BULLET.test(l.trim())
+/** Repère de cellule fusionnée (invisible) : ajouté aux lignes d'organigramme, retiré à la création du tableau. */
+const MERGED = '\u200b'
+
+/**
+ * Word copie une cellule à plusieurs paragraphes sur plusieurs lignes, la cellule suivante commençant sur la
+ * dernière ligne après une tabulation (« • Inventaires ⇥ • Affectations »). Sous une ligne d'en-tête à n cellules,
+ * on recolle ces lignes en UNE ligne de n cellules, les puces d'une même cellule séparées par un saut de ligne.
+ */
+export function joinCellLines(lines: string[]): string[] {
+  const out: string[] = []
+  const skip = (j: number) => { while (j < lines.length && !lines[j].trim()) j++; return j }
+  for (let i = 0; i < lines.length; i++) {
+    const head = lines[i]
+    const cols = head.includes('\t') && !head.includes('|') && !isBullet(head) ? head.split('\t').length : 0
+    let j = skip(i + 1)
+    if (cols >= 2 && j < lines.length && isBullet(lines[j])) {
+      const cells: string[][] = Array.from({ length: cols }, () => [])
+      let k = 0, ok = true, last = j
+      while (j < lines.length && isBullet(lines[j])) {
+        const parts = lines[j].split('\t')
+        if (k + parts.length - 1 > cols - 1) { ok = false; break }
+        cells[k].push(parts[0].trim().replace(/^[•·▪●■◦○▫]\s*/, '• '))
+        for (let p = 1; p < parts.length; p++) { k++; cells[k].push(parts[p].trim().replace(/^[•·▪●■◦○▫]\s*/, '• ')) }
+        last = j
+        j = skip(j + 1)
+      }
+      if (ok && k === cols - 1 && cells.every(c => c.length)) {
+        out.push(head, cells.map(c => c.join(CELL_BR)).join('\t'))
+        i = last
+        continue
+      }
+    }
+    out.push(head)
+  }
+  return out
+}
+
+/** Ligne courte en MAJUSCULES sans ponctuation finale : « DIRECTION GÉNÉRALE ». */
+const capsLine = (l: string) => {
+  const t = l.trim()
+  const letters = t.replace(/[^A-Za-zÀ-ÿ]/g, '')
+  return t.length >= 4 && t.length <= 90 && letters.length >= 4 && letters === letters.toUpperCase() && !/[.:;!?,]$/.test(t) && !t.includes('\t') && !t.includes('|') && !/^#{1,4}\s/.test(t) && !/^[-•*–]\s/.test(t)
+}
+const plainCaps = (l: string) => capsLine(l) && headOf(l, undefined, false, false) === null
+
+/**
+ * Titre du document : au moins deux lignes en MAJUSCULES tout au début (+ un sous-titre court).
+ * Ce n'est pas un chapitre : centré, hors sommaire, et les titres numérotés qui suivent restent au 1er niveau.
+ */
+export function leadingTitle(lines: string[]): { end: number; items: { text: string; sub?: boolean }[] } | null {
+  let j = 0
+  while (j < lines.length && !lines[j].trim()) j++
+  const caps: string[] = []
+  while (j < lines.length) {
+    const t = lines[j].trim()
+    if (!t) { j++; continue }
+    if (plainCaps(t) && !SPECIAL.test(t.replace(/[\s:.\-–—]+$/, ''))) { caps.push(t); j++ } else break
+  }
+  if (caps.length < 2 || caps.length > 4) return null
+  const items: { text: string; sub?: boolean }[] = caps.map(text => ({ text }))
+  while (j < lines.length && !lines[j].trim()) j++
+  if (j < lines.length) {
+    const t = lines[j].trim()
+    if (!isRowLine(lines[j]) && words(t) <= 14 && t.length <= 110 && !/[.:;!?,]$/.test(t) && !/^[-•*–\d#]/.test(t) && headOf(t, undefined, false, false) === null && !labelOf(t)) { items.push({ text: t, sub: true }); j++ }
+  }
+  return { end: j, items }
+}
+
+/**
+ * Organigramme copié depuis Word : les cases du haut (« DIRECTION GÉNÉRALE »…) arrivent sur des lignes seules, juste
+ * avant la 1re ligne à plusieurs colonnes. Au moins deux lignes en MAJUSCULES collées à un tableau = lignes fusionnées de ce tableau.
+ */
+export function markTitleRows(lines: string[]): string[] {
+  const out: string[] = []
+  for (let i = 0; i < lines.length; i++) {
+    if (plainCaps(lines[i])) {
+      const run: string[] = []
+      let j = i
+      while (j < lines.length) {
+        if (!lines[j].trim()) { j++; continue }
+        if (plainCaps(lines[j]) && !SPECIAL.test(lines[j].trim())) { run.push(lines[j].trim()); j++ } else break
+      }
+      if (run.length >= 2 && j < lines.length && lines[j].includes('\t') && lines[j].split('\t').filter(c => c.trim()).length >= 2) {
+        for (const r of run) out.push(`${r}\t${MERGED}`)
+        i = j - 1
+        continue
+      }
+    }
+    out.push(lines[i])
+  }
+  return out
+}
+
 export function parse(src: string): Block[] {
-  const lines = unflattenTables(alignColumns(stripToc(src.replace(/\r/g, '').split('\n').map(l => l.replace(/\s+$/, '')))))
+  let lines = unflattenTables(alignColumns(joinCellLines(stripToc(src.replace(/\r/g, '').split('\n').map(l => l.replace(/\s+$/, ''))))))
+  const out: Block[] = []
+  const lead = leadingTitle(lines)
+  if (lead) { for (const x of lead.items) out.push({ t: 'title', text: x.text, sub: x.sub }); lines = lines.slice(lead.end) }
+  lines = markTitleRows(lines)
   const hasBlank = lines.some(l => l.trim() === '')
   const explicit = lines.some(l => /^#{1,4}\s+\S/.test(l))
   const ctx = scan(lines)
@@ -294,7 +399,6 @@ export function parse(src: string): Block[] {
     return t.length >= 40 || (t.length >= 20 && /[.!?»)]$/.test(t)) || isRowLine(lines[j]) || CAPTION.test(t) || /^([-•*–])\s+\S/.test(t) || headOf(t, ctx, isoAt(j), true, false) !== null
   }
 
-  const out: Block[] = []
   let para: string[] = []
   const flush = () => { if (para.length) { out.push({ t: 'p', text: para.join(' ') }); para = [] } }
 
@@ -338,7 +442,10 @@ export function parse(src: string): Block[] {
       if (tbl.length >= 2 && Math.max(...tbl.map(r => r.length)) >= 2) {
         flush()
         const n = Math.max(...tbl.map(r => r.length))
-        const norm = tbl.map(r => Array.from({ length: n }, (_, c) => r[c] ?? ''))
+        const merged = tbl.map((r, i) => (r.length >= 2 && r.slice(1).every(c => c === MERGED) ? i : -1)).filter(i => i >= 0)
+        const norm = tbl.map(r => Array.from({ length: n }, (_, c) => (r[c] === MERGED ? '' : r[c] ?? '')))
+        // ligne de titres (toutes les cellules remplies, sans puces) juste au-dessus d'une ligne à puces : titres de colonnes d'un organigramme
+        const heads = norm.map((r, i) => (i > 0 && !merged.includes(i) && i + 1 < norm.length && r.every(c => c.trim() && !c.includes(CELL_BR)) && norm[i + 1].some(c => c.startsWith('• ')) ? i : -1)).filter(i => i >= 0)
         let caption: string | undefined
         const prev = out[out.length - 1]
         if (prev?.t === 'p' && CAPTION.test(prev.text) && prev.text.length < 160) { caption = prev.text.match(CAPTION)![1]; out.pop() }
@@ -347,7 +454,7 @@ export function parse(src: string): Block[] {
           while (k < lines.length && !lines[k].trim()) k++
           if (k < lines.length && CAPTION.test(lines[k].trim()) && lines[k].length < 160 && !isRowLine(lines[k])) { caption = lines[k].trim().match(CAPTION)![1]; j = k + 1 }
         }
-        out.push({ t: 'table', rows: norm, caption })
+        out.push({ t: 'table', rows: norm, caption, ...(merged.length ? { merged } : {}), ...(heads.length ? { heads } : {}) })
         i = j - 1
         continue
       }

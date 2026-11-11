@@ -123,3 +123,30 @@ for (const w of words2(mix.replace(/\t/g, ' '))) assert.ok(outW.includes(w.repla
 assert.deepEqual(H('QUESTIONS\n\n1. Pourquoi parle-t-on de dernière minute ?\nOn parle ainsi car les crises sont imprévisibles et rapides.\n\n2. Citez les étapes de la chaîne logistique communes à l’industrie.\nLes étapes sont : approvisionnement, stockage, transport.\n\n3. Quel est le point commun entre les deux ?\nLe point commun est la rapidité.'),
   ['1:QUESTIONS', '2:1. Pourquoi parle-t-on de dernière minute ?', '2:2. Citez les étapes de la chaîne logistique communes à l’industrie.', '2:3. Quel est le point commun entre les deux ?'])
 console.log('reconnaissance universelle : OK')
+
+// ===== Texte copié depuis Word : organigramme, cellules à puces, titre du document =====
+const LS = String.fromCharCode(0x2028)
+const org = 'DIRECTION GÉNÉRALE\nRESPONSABLE DES MOYENS GÉNÉRAUX\nAchats et stocks\tParc automobile\n• Besoins\n• Achats\t• Demandes\n• Carburant\nMaintenance\tServices\n• Climatiseurs\t• Nettoyage'
+const ob = (parse(`Texte avant.\n${org}\nTexte après.`) as (Any & { merged?: number[]; heads?: number[] })[])
+assert.deepEqual(ob.map(b => b.t), ['p', 'table', 'p'])
+const ot = ob[1]
+assert.deepEqual(ot.merged, [0, 1])               // cases du haut : cellules fusionnées, plus de faux titres
+assert.deepEqual(ot.heads, [2, 4])                // lignes de titres de colonnes
+assert.deepEqual(ot.rows![3], [`• Besoins${LS}• Achats`, `• Demandes${LS}• Carburant`]) // puces d'une cellule regroupées
+assert.deepEqual(ot.rows![5], ['• Climatiseurs', '• Nettoyage'])
+// une seule ligne en majuscules avant un tableau : c'est un vrai titre, pas une case fusionnée
+assert.equal((parse('PLAN\nA\tB\n1\t2') as (Any & { merged?: number[] })[]).find(b => b.t === 'table')?.merged, undefined)
+// puces sans rapport avec la ligne à tabulations : rien n'est fusionné
+assert.deepEqual(kinds('Poste\tN\nA\t1\n\n• une puce\n• une autre'), ['table', 'li', 'li'])
+// titre du document : lignes en MAJUSCULES tout au début + sous-titre, hors sommaire, titres numérotés au 1er niveau
+const doc = parse('GESTION DES MOYENS GÉNÉRAUX\nÉTUDE DE CAS N° 1\nOrganisation des moyens généraux de la société\n\n1. Définition\nTexte du paragraphe assez long pour être un paragraphe.\n1.1. Détail\nTexte.') as (Any & { level?: number; sub?: boolean })[]
+assert.deepEqual(doc.slice(0, 3).map(b => `${b.t}${b.sub ? ':sub' : ''}`), ['title', 'title', 'title:sub'])
+assert.deepEqual(doc.filter(b => b.t === 'h').map(b => `${b.level}:${b.text}`), ['1:1. Définition', '2:1.1. Détail'])
+// un seul titre en majuscules au début : reste un chapitre
+assert.deepEqual(kinds('LE MARCHÉ DU RIZ\nTexte du paragraphe assez long pour être un paragraphe.'), ['h', 'p'])
+// titres « Introduction et … », « Source utilisée », « Recommandation 1 : … » (sans lignes vides)
+assert.deepEqual(H('1. Cadre\nTexte.\nIntroduction et diagnostic du cas\nTexte.\n7. Trois recommandations\nRecommandation 1 : formaliser les demandes\nTexte.\nRecommandation 2 : planifier\nTexte.\nConclusion générale\nTexte.\nSource utilisée\nSupport de cours : Gestion.'),
+  ['1:1. Cadre', '1:Introduction et diagnostic du cas', '1:7. Trois recommandations', '2:Recommandation 1 : formaliser les demandes', '2:Recommandation 2 : planifier', '1:Conclusion générale', '1:Source utilisée'])
+// une phrase qui commence comme un titre mais finit par un point reste un paragraphe
+assert.deepEqual(H('Recommandation 1 : il faut absolument former le personnel dès maintenant avant la fin.\nTexte.'), [])
+console.log('Word : organigramme, titre du document, titres : OK')

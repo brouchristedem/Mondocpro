@@ -1,11 +1,11 @@
 import {
   AlignmentType, Bookmark, BorderStyle, Document, Footer, Header, ImageRun, LeaderType, LevelFormat, LineRuleType, NumberFormat, Packer,
   Paragraph, PageNumber, PageOrientation, SectionType, SimpleField, Table, TableCell, TableLayoutType,
-  TableRow, TabStopType, TextRun, VerticalAlign, WidthType,
+  ShadingType, TableRow, TabStopType, TextRun, VerticalAlign, WidthType,
   type ISectionOptions,
 } from 'docx'
 import JSZip from 'jszip'
-import type { Block, Settings } from './types'
+import { CELL_BR, type Block, type Settings } from './types'
 import { A4, plan, widthOf, type Item } from './plan'
 
 type Child = Paragraph | Table
@@ -17,10 +17,15 @@ const TOC_MARK = '@@TOC@@'
 const tocId = (i: number) => `_Toc${100000 + i}`
 
 function runs(text: string, base: { size?: number; bold?: boolean } = {}): TextRun[] {
-  return text.split(/(\*\*[^*]+\*\*|\*[^*\s][^*]*\*)/).filter(Boolean).map(s =>
-    s.startsWith('**') ? new TextRun({ ...base, text: s.slice(2, -2), bold: true })
-      : s.startsWith('*') && s.length > 2 ? new TextRun({ ...base, text: s.slice(1, -1), italics: true })
-      : new TextRun({ ...base, text: s }))
+  // CELL_BR = saut de ligne dans une cellule (puces d'un organigramme) : chaque ligne repart sous la précédente
+  return text.split(CELL_BR).flatMap((line, li) => {
+    const out = line.split(/(\*\*[^*]+\*\*|\*[^*\s][^*]*\*)/).filter(Boolean).map(s =>
+      s.startsWith('**') ? new TextRun({ ...base, text: s.slice(2, -2), bold: true })
+        : s.startsWith('*') && s.length > 2 ? new TextRun({ ...base, text: s.slice(1, -1), italics: true })
+        : new TextRun({ ...base, text: s }))
+    if (li > 0) return [new TextRun({ ...base, text: '', break: 1 }), ...out]
+    return out
+  })
 }
 
 function dataToBytes(url: string): { data: Uint8Array; type: 'png' | 'jpg' } {
@@ -58,14 +63,21 @@ export function buildDocument(blocks: Block[], s: Settings, nums?: PageNumbers):
 
   // ---- corps : un élément du plan = un objet Word ----
   const tableChildren = (it: Extract<Item, { k: 'table' }>): Table => {
-    const cell = (text: string, ci: number, head: boolean) => new TableCell({
-      width: { size: it.colW[ci], type: WidthType.DXA },
+    const cols = it.colW.length
+    const GREY = { type: ShadingType.CLEAR, fill: 'F2F2F2', color: 'auto' } as const
+    const isHead = (ri: number) => ri === 0 || it.heads.includes(ri) || it.merged.includes(ri)
+    const cell = (text: string, ci: number, head: boolean, span = 1) => new TableCell({
+      width: { size: span === 1 ? it.colW[ci] : it.W, type: WidthType.DXA },
+      columnSpan: span > 1 ? span : undefined,
       verticalAlign: VerticalAlign.CENTER,
-      
+      shading: head && (cols >= 3 || it.merged.length) ? GREY : undefined,
       margins: { top: 60, bottom: 60, left: 90, right: 90 },
       children: [new Paragraph({ style: 'TableText', alignment: head ? AlignmentType.CENTER : AlignmentType.LEFT, children: runs(text, { size: half(it.size), bold: head }) })],
     })
-    const rows = it.rows.map((r, ri) => new TableRow({ tableHeader: ri === 0, cantSplit: true, children: r.map((t, ci) => cell(t, ci, ri === 0)) }))
+    const rows = it.rows.map((r, ri) => new TableRow({
+      tableHeader: ri === 0 && !it.merged.includes(0), cantSplit: true,
+      children: it.merged.includes(ri) ? [cell(r[0], 0, true, cols)] : r.map((t, ci) => cell(t, ci, isHead(ri))),
+    }))
     // bordures simples explicites : on ne dépend pas des valeurs par défaut de la bibliothèque ni de Word
     const line = { style: BorderStyle.SINGLE, size: 4, color: '000000' } as const // 4 = 0,5 pt, comme l'aperçu
     return new Table({
@@ -75,6 +87,12 @@ export function buildDocument(blocks: Block[], s: Settings, nums?: PageNumbers):
   }
   const toChild = (it: Item): Child => {
     switch (it.k) {
+      case 'title':
+        return new Paragraph({
+          style: it.sub ? 'DocSubtitle' : 'DocTitle',
+          keepNext: true,
+          children: [new TextRun(it.text)],
+        })
       case 'h':
         return new Paragraph({
           heading: (['Heading 1', 'Heading 2', 'Heading 3', 'Heading 4'][it.level - 1]) as never,
@@ -179,6 +197,8 @@ export function buildDocument(blocks: Block[], s: Settings, nums?: PageNumbers):
         { id: 'Heading2', name: 'Heading 2', basedOn: 'Normal', next: 'Body', quickFormat: true, run: { font: f, size: half(s.size + 2), bold: true }, paragraph: { keepNext: true, spacing: { before: 280, after: 120, line: 276, lineRule: LineRuleType.AUTO }, outlineLevel: 1 } },
         { id: 'Heading3', name: 'Heading 3', basedOn: 'Normal', next: 'Body', quickFormat: true, run: { font: f, size: half(s.size + 1), bold: true, italics: true }, paragraph: { keepNext: true, spacing: { before: 240, after: 100, line: 276, lineRule: LineRuleType.AUTO }, outlineLevel: 2 } },
         { id: 'Heading4', name: 'Heading 4', basedOn: 'Normal', next: 'Body', quickFormat: true, run: { font: f, size: half(s.size), italics: true }, paragraph: { keepNext: true, spacing: { before: 200, after: 80, line: 276, lineRule: LineRuleType.AUTO }, outlineLevel: 3 } },
+        { id: 'DocTitle', name: 'Document Title', basedOn: 'Normal', next: 'Body', run: { font: f, size: half(s.size + 6), bold: true }, paragraph: { alignment: AlignmentType.CENTER, keepNext: true, spacing: { before: 0, after: 120, line: 276, lineRule: LineRuleType.AUTO } } },
+        { id: 'DocSubtitle', name: 'Document Subtitle', basedOn: 'Normal', next: 'Body', run: { font: f, size: half(s.size + 2), italics: true }, paragraph: { alignment: AlignmentType.CENTER, keepNext: true, spacing: { before: 60, after: 360, line: 276, lineRule: LineRuleType.AUTO } } },
         { id: 'Caption', name: 'Caption', basedOn: 'Normal', next: 'Body', quickFormat: true, run: { font: f, size: half(s.size - 1), bold: true }, paragraph: { alignment: AlignmentType.CENTER, spacing: { before: 200, after: 100 } } },
         { id: 'TableText', name: 'Table Text', basedOn: 'Normal', run: { font: f }, paragraph: { spacing: { line: 252, lineRule: LineRuleType.AUTO } } },
         { id: 'FrontTitle', name: 'Front Title', basedOn: 'Normal', next: 'Body', run: { font: f, size: half(s.size + 4), bold: true }, paragraph: { alignment: AlignmentType.CENTER, spacing: { after: 360 } } },
@@ -203,9 +223,12 @@ async function injectToc(zip: JSZip, blocks: Block[], s: Settings, nums?: PageNu
   let doc = await file.async('string')
   const begin = '<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> TOC \\o "1-4" \\h \\z \\u </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r>'
   const end = '<w:r><w:fldChar w:fldCharType="end"/></w:r>'
+  // la bibliothèque range la rupture de section (saut de page vers le texte) DANS le dernier paragraphe des pages préliminaires :
+  // si ce paragraphe est le repère du sommaire, on la remet sur la dernière ligne du sommaire (sinon sommaire et texte se retrouvent sur la même page)
+  const sect = (new RegExp(`<w:p>(?:(?!</w:p>)[\\s\\S])*?${TOC_MARK}[\\s\\S]*?</w:p>`).exec(doc)?.[0] ?? '').match(/<w:sectPr[\s\S]*?<\/w:sectPr>/)?.[0] ?? ''
   const paras = items.map((h, n) => {
     const id = tocId(h.i)
-    return `<w:p><w:pPr><w:pStyle w:val="TOC${h.level}"/></w:pPr>${n === 0 ? begin : ''}` +
+    return `<w:p><w:pPr><w:pStyle w:val="TOC${h.level}"/>${n === items.length - 1 ? sect : ''}</w:pPr>${n === 0 ? begin : ''}` +
       `<w:hyperlink w:anchor="${id}" w:history="1"><w:r><w:t xml:space="preserve">${xml(h.text)}</w:t></w:r><w:r><w:tab/></w:r>` +
       `<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGEREF ${id} \\h </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r>` +
       `<w:r><w:t>${xml(nums?.headings[h.i] ?? '')}</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r></w:hyperlink>${n === items.length - 1 ? end : ''}</w:p>`
