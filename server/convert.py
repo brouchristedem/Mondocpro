@@ -10,7 +10,7 @@ from com.sun.star.beans import PropertyValue
 from docx_check import check_docx
 
 PORT = int(os.environ.get('PORT', 8787))
-ORIGINS = [o.strip() for o in os.environ.get('ALLOW_ORIGIN', 'https://mondocpro-gamma.vercel.app').split(',') if o.strip()]
+ORIGINS = [o.strip() for o in os.environ.get('ALLOW_ORIGIN', 'https://mondoc-pro.vercel.app,https://mondocpro-gamma.vercel.app').split(',') if o.strip()]
 MAX = int(os.environ.get('MAX_MB', 8)) * 1024 * 1024
 TIMEOUT = int(os.environ.get('TIMEOUT_S', 60))
 RATE = int(os.environ.get('RATE_PER_MIN', 6))

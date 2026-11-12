@@ -1,0 +1,21 @@
+import { useId } from 'react'
+
+/** Marque mondocpro : une page au coin plié qui porte un « m », avec deux lignes de texte dessous. Même dessin que public/favicon.svg. */
+export default function Logo({ size = 32 }: { size?: number }) {
+  const id = useId()
+  return (
+    <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+      <defs>
+        <linearGradient id={id} x1="8" y1="2" x2="58" y2="64" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stopColor="#4068F5" />
+          <stop offset="1" stopColor="#1B34B8" />
+        </linearGradient>
+      </defs>
+      <rect width="64" height="64" rx="16" fill={`url(#${id})`} />
+      <path d="M19.5 9.5h18.6L48.5 20v31.5a3 3 0 0 1-3 3h-26a3 3 0 0 1-3-3v-39a3 3 0 0 1 3-3z" fill="#fff" />
+      <path d="M38.1 9.5v7.5a3 3 0 0 0 3 3h7.4z" fill="#7FE3F2" />
+      <path d="M23 40V27.4M23 32.4c0-3.5 2.1-5 4.7-5s4.6 1.5 4.6 5V40M32.3 32.4c0-3.5 2.1-5 4.7-5s4.6 1.5 4.6 5V40" fill="none" stroke="#2347E0" strokeWidth="3.6" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M23 45.8h18.6M23 49.8h11.4" fill="none" stroke="#BFCBF8" strokeWidth="2.2" strokeLinecap="round" />
+    </svg>
+  )
+}

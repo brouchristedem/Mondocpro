@@ -7,6 +7,8 @@ import { clearTombs, currentId, dropLocal, fromCloud, getDoc, listDocs, nameFor,
 import { deletedMarker, planSync, toCloud } from './sync'
 import { useInstall } from './install'
 import ContactFab from './ContactFab'
+import Logo from './Logo'
+import { IArrow, ICheck, ICover, IDownload, IEdit, IEye, IFolder, IHash, IList, IPaste, IPhone, IPlus, IShare, ISliders, ITable, ICloud, IHeading } from './icons'
 import { PHONE_SHOW, TEL_URL, WA_URL } from './contact'
 
 const AdminDialog = lazy(() => import('./AdminDialog'))
@@ -29,11 +31,7 @@ async function makeDocx(blocks: Block[], s: Settings): Promise<Blob> {
 }
 
 type Tab = 'texte' | 'garde' | 'reglages' | 'apercu'
-const TABS: [Tab, string][] = [['texte', 'Texte'], ['garde', 'Page de garde'], ['reglages', 'Réglages'], ['apercu', 'Aperçu']]
-
-const Logo = ({ size = 30 }: { size?: number }) => (
-  <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="16" fill="#2457D6" /><path d="M20 12h17l9 9v31a2 2 0 0 1-2 2H20a2 2 0 0 1-2-2V14a2 2 0 0 1 2-2z" fill="none" stroke="#fff" strokeWidth="3" strokeLinejoin="round" /><path d="M37 12v9h9" fill="none" stroke="#FFC94A" strokeWidth="3" strokeLinejoin="round" /><path d="M24 32h16M24 38h16M24 44h9" stroke="#fff" strokeWidth="3" strokeLinecap="round" /></svg>
-)
+const TABS: [Tab, string, (p: { size?: number }) => React.JSX.Element][] = [['texte', 'Texte', IEdit], ['garde', 'Page de garde', ICover], ['reglages', 'Réglages', ISliders], ['apercu', 'Aperçu', IEye]]
 
 function Check({ label, hint, checked, disabled, onChange }: { label: string; hint?: string; checked: boolean; disabled?: boolean; onChange: (v: boolean) => void }) {
   return (
@@ -299,218 +297,296 @@ export default function App() {
 
   return (
     <>
-      <header className="nav">
-        <div className="nav-left">
-          {HAS_BACKEND && (account
-            ? <button className="nav-btn" onClick={() => { setDocs(listDocs()); setDialog('library') }}>Mon compte</button>
-            : <button className="nav-btn" onClick={openLogin}>Connexion</button>)}
-        </div>
-        <a className="brand" href="#top" aria-label="mondocpro, accueil"><Logo /><span>mondocpro</span></a>
-        <div className="nav-right">
-          {isAdmin && <button className="nav-btn" onClick={async () => { await loadAcc(); setDialog('admin') }}>Admin</button>}
-          {!install.installed && <button className="nav-btn" onClick={goInstall}>Installer</button>}
+      <a className="skip" href="#atelier">Aller à l’éditeur</a>
+      <header className={'nav' + (isAdmin ? ' crowded' : '')}>
+        <div className="wrap nav-in">
+          <a className="brand" href="#top" aria-label="mondocpro, accueil"><Logo size={34} /><span>mondoc<i>pro</i></span></a>
+          {!install.installed && (
+            <nav className="nav-links" aria-label="Sections">
+              <a href="#methode">Comment ça marche</a><a href="#fonctions">Fonctions</a><a href="#faq">Questions</a>
+            </nav>
+          )}
+          <div className="nav-actions">
+            {isAdmin && <button className="nav-btn" onClick={async () => { await loadAcc(); setDialog('admin') }}>Admin</button>}
+            {HAS_BACKEND && (account
+              ? <button className="nav-btn" onClick={() => { setDocs(listDocs()); setDialog('library') }}>Mon compte</button>
+              : <button className="nav-btn" onClick={openLogin}>Connexion</button>)}
+            {!install.installed && <button className="nav-btn solid inst" onClick={goInstall}>Installer</button>}
+          </div>
         </div>
       </header>
 
       {!install.installed && (
         <section className="hero" id="top">
-          <span className="badge">Gratuit pour le moment</span>
-          <h1>Colle ton texte.<br /><em>Récupère un Word impeccable.</em></h1>
-          <p className="lead">Titres, sommaire, pagination et tableaux se mettent en page tout seuls.</p>
-          <a className="btn big" href="#atelier">Mettre mon texte en page</a>
-          <ul className="proof"><li>Sans inscription</li><li>Word et PDF</li><li>Sur téléphone</li>{users !== null && <li>{users.toLocaleString('fr-FR')} utilisateur{users > 1 ? 's' : ''} inscrit{users > 1 ? 's' : ''}</li>}</ul>
+          <div className="wrap">
+            <div>
+              <span className="pill">Gratuit pour le moment</span>
+              <h1><span>Colle ton texte.</span><span>Récupère un Word impeccable.</span></h1>
+              <p className="lead">Titres, sommaire, pagination et tableaux se mettent en page tout seuls. Tu télécharges en Word ou en PDF, prêt à rendre.</p>
+              <div className="cta-row">
+                <a className="btn lg" href="#atelier">Mettre mon texte en page <IArrow size={20} /></a>
+                <a className="btn-text" href="#methode">Voir comment ça marche</a>
+              </div>
+              <ul className="proof">
+                <li><ICheck size={18} />Sans inscription</li>
+                <li><ICheck size={18} />Word et PDF</li>
+                <li><ICheck size={18} />Sur téléphone</li>
+                {users !== null && <li><ICheck size={18} />{users.toLocaleString('fr-FR')} inscrit{users > 1 ? 's' : ''}</li>}
+              </ul>
+              <p className="fine">Offre de lancement : gratuit pour le moment. Un tarif sera proposé plus tard.</p>
+            </div>
 
-          <div className="demo" aria-hidden="true">
-            <figure className="raw">
-              <figcaption>Ton texte collé</figcaption>
-              <div className="rawtext">
+            <div className="stage" aria-hidden="true">
+              <div className="paste"><div className="paste-in">
+                <b>Ton texte collé</b>
                 <p>CHAPITRE 1 : LE MARCHÉ</p>
                 <p>I. Les chiffres clés</p>
-                <p>Les ventes ont progressé sur toute l’année, portées par la demande locale.</p>
-                <p className="tabs">Produit&nbsp;&nbsp;&nbsp;Ventes&nbsp;&nbsp;&nbsp;Part</p>
-                <p className="tabs">Riz&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;1 200&nbsp;&nbsp;&nbsp;&nbsp;40 %</p>
-                <p className="tabs">Maïs&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;900&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;30 %</p>
+                <p className="gap">Les ventes ont progressé sur</p>
+                <p className="gap">Produit&nbsp;&nbsp;Ventes&nbsp;&nbsp;Part</p>
+                <p>Riz&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;1 200&nbsp;&nbsp;&nbsp;40 %</p>
+                <p>Maïs&nbsp;&nbsp;&nbsp;&nbsp;900&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;30 %</p>
+              </div></div>
+              <svg className="arrow" viewBox="0 0 120 40" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M4 28C34 4 70 4 112 22M98 10l14 12-17 6" /></svg>
+              <div className="sheetw">
+                <div className="a4">
+                  <div className="guides"><i className="gl" /><i className="gr" /><i className="gt" /><i className="gb" /></div>
+                  <div className="t-title r" style={{ '--d': '.5s' } as React.CSSProperties}>SOMMAIRE</div>
+                  <div className="t-toc r" style={{ '--d': '.6s' } as React.CSSProperties}><span>CHAPITRE 1 : LE MARCHÉ</span><u /><span>2</span></div>
+                  <div className="t-toc sub r" style={{ '--d': '.7s' } as React.CSSProperties}><span>I. Les chiffres clés</span><u /><span>2</span></div>
+                  <div className="t-h r" style={{ '--d': '.85s' } as React.CSSProperties}>I. Les chiffres clés</div>
+                  <div className="t-line r" style={{ '--d': '.95s' } as React.CSSProperties} /><div className="t-line s r" style={{ '--d': '1s' } as React.CSSProperties} />
+                  <div className="t-cap r" style={{ '--d': '1.1s' } as React.CSSProperties}>Tableau 1 : Ventes par produit</div>
+                  <table className="r" style={{ '--d': '1.2s' } as React.CSSProperties}><tbody><tr><th>Produit</th><th>Ventes</th><th>Part</th></tr><tr><td>Riz</td><td>1 200</td><td>40 %</td></tr><tr><td>Maïs</td><td>900</td><td>30 %</td></tr></tbody></table>
+                  <div className="t-num">2</div>
+                </div>
               </div>
-            </figure>
-            <div className="arrow">→</div>
-            <figure className="doc">
-              <figcaption>Ton document prêt</figcaption>
-              <div className="page">
-                <div className="toc-t">SOMMAIRE</div>
-                <div className="toc"><span>CHAPITRE 1 : LE MARCHÉ</span><i /><b>2</b></div>
-                <div className="toc sub"><span>I. Les chiffres clés</span><i /><b>2</b></div>
-                <div className="h">I. Les chiffres clés</div>
-                <div className="line" /><div className="line s" />
-                <div className="cap">Tableau 1 : Ventes par produit</div>
-                <table><tbody><tr><th>Produit</th><th>Ventes</th><th>Part</th></tr><tr><td>Riz</td><td>1 200</td><td>40 %</td></tr><tr><td>Maïs</td><td>900</td><td>30 %</td></tr></tbody></table>
-                <div className="num">2</div>
+              <div className="badges">
+                <span className="badge"><IList size={18} />Sommaire automatique</span>
+                <span className="badge"><ITable size={18} />Tableaux propres</span>
               </div>
-            </figure>
+            </div>
           </div>
-          <p className="fine">Offre de lancement : gratuit pour le moment. Un tarif sera proposé plus tard.</p>
         </section>
       )}
 
       <main className="atelier" id="atelier" ref={atelierRef}>
-        {!install.installed && <h2 className="section-title">Ton document</h2>}
-        <div className="bar">
-          <button className="chipbtn" onClick={() => { setDocs(listDocs()); setDialog('library') }}>Mes documents{docs.length > 0 ? ` · ${docs.length}` : ''}</button>
-          <span className={'status ' + saved} aria-live="polite">{savedLabel}</span>
-          <button className="chipbtn" onClick={newDoc} disabled={empty}>Nouveau</button>
-        </div>
-
-        <nav className="tabs" role="tablist">
-          {TABS.map(([k, l]) => (
-            <button key={k} role="tab" aria-selected={tab === k} className={(tab === k ? 'on ' : '') + (k === 'apercu' ? 'only-mobile' : '')} onClick={() => setTab(k)}>{l}</button>
-          ))}
-        </nav>
-
-        <div className={'panel ' + (tab === 'apercu' ? 'hide-mobile' : '')}>
-          {tab === 'texte' && (
-            <>
-              <div className="row actions">
-                <button className="btn small" onClick={paste}>Coller mon texte</button>
-                {!empty && <button className="link" onClick={() => { setText(''); setCover({ title: '' }); taRef.current?.focus() }}>Tout effacer</button>}
+        <div className="wrap">
+          {!install.installed && <div className="section-head"><h2>Ton document</h2></div>}
+          <div className="bench">
+            <div className="bench-bar">
+              <button className="chipbtn" onClick={() => { setDocs(listDocs()); setDialog('library') }}><IFolder size={18} />Mes documents{docs.length > 0 && <em>{docs.length}</em>}</button>
+              <button className="chipbtn" onClick={newDoc} disabled={empty}><IPlus size={18} />Nouveau</button>
+              <span className={'status ' + saved} aria-live="polite">{savedLabel}</span>
+              <div className="bench-actions desk-only">
+                <button className="btn ghost sm" onClick={explicitSave} disabled={empty}>Enregistrer</button>
+                <button className="btn sm" onClick={() => { setError(''); setDialog('download') }} disabled={empty || !blocks.length}><IDownload size={18} />Télécharger</button>
               </div>
-              <textarea ref={taRef} value={text} onChange={e => onType(e.target.value)} spellCheck={false} aria-label="Ton texte" placeholder="Colle ton texte ici…" />
-              {empty
-                ? <p className="hint">Copie ton texte depuis Word, un mail, un PDF ou tes notes, puis colle-le ici. Tout le reste est automatique.</p>
-                : <p className="hint found">{heads} titre{heads > 1 ? 's' : ''} · {tables} tableau{tables > 1 ? 'x' : ''}{pages ? ` · ${pages} page${pages > 1 ? 's' : ''}` : ''}</p>}
-              <details className="tips">
-                <summary>Astuces de mise en page</summary>
-                <ul>
-                  <li><b>Titres</b> : « CHAPITRE 1 », « I. », « A. », « 1.1 » sont reconnus. Tu peux aussi écrire <code># Titre</code> et <code>## Sous-titre</code>.</li>
-                  <li><b>Tableaux</b> : copie-les depuis Word, Excel ou un PDF et colle-les. Ajoute « Tableau : titre » juste avant pour la légende.</li>
-                  <li><b>Page de garde</b> : colle ton texte avec « Thème : … », « Présenté par : … » au début, elle se remplit toute seule dans l’onglet Page de garde, où tu peux tout modifier.</li>
-                  <li><b>Gras</b> : entoure un mot de deux étoiles, <code>**comme ça**</code>.</li>
-                </ul>
-              </details>
-            </>
-          )}
-
-          {tab === 'garde' && (
-            <div className="form">
-              <Check label="Ajouter une page de garde" checked={sEff.cover.enabled} onChange={v => setCover({ enabled: v })} />
-              {sEff.cover.enabled && (
-                <>
-                  <Field label="Établissement ou société"><input value={sEff.cover.school} onChange={e => setCover({ school: e.target.value })} placeholder="Nom de l’établissement" /></Field>
-                  <Field label="Type de document"><input value={sEff.cover.kind} onChange={e => setCover({ kind: e.target.value })} placeholder="RAPPORT, DOSSIER, MÉMOIRE…" /></Field>
-                  <Field label="Titre"><textarea rows={3} value={sEff.cover.title} onChange={e => setCover({ title: e.target.value })} placeholder="Le titre de ton document" /></Field>
-                  <Field label="Présenté par"><input value={sEff.cover.author} onChange={e => setCover({ author: e.target.value })} /></Field>
-                  <Field label="Groupe / filière"><input value={sEff.cover.group ?? ''} onChange={e => setCover({ group: e.target.value })} placeholder="Licence 3 Logistique" /></Field>
-                  <Field label="Autres lignes (une par ligne)"><textarea rows={2} value={(sEff.cover.extras ?? []).join('\n')} onChange={e => setCover({ extras: e.target.value.split('\n') })} placeholder="Module : Logistique humanitaire" /></Field>
-                  <Field label="Encadreur ou responsable"><input value={sEff.cover.supervisor} onChange={e => setCover({ supervisor: e.target.value })} /></Field>
-                  <Field label="Année"><input value={sEff.cover.year} onChange={e => setCover({ year: e.target.value })} placeholder="2025-2026" /></Field>
-                  <Field label="Logo (PNG ou JPG)">
-                    <input type="file" accept="image/png,image/jpeg" onChange={e => onLogo(e.target.files?.[0])} />
-                    {s.cover.logo && <button className="link" onClick={() => setCover({ logo: undefined })}>Retirer le logo</button>}
-                  </Field>
-                </>
-              )}
             </div>
-          )}
 
-          {tab === 'reglages' && (
-            <div className="form">
-              <div>
-                <p className="label">Modèle</p>
-                <div className="chips">
-                  {(Object.keys(PRESETS) as PresetKey[]).map(k => (
-                    <button key={k} className={'chip ' + (preset === k ? 'on' : '')} onClick={() => pickPreset(k)}>{PRESETS[k].label}</button>
+            <div className="bench-body">
+              <div className="side">
+                <nav className="tabs" role="tablist" aria-label="Étapes de mise en page">
+                  {TABS.map(([k, l, Ic]) => (
+                    <button key={k} role="tab" aria-selected={tab === k} className={(tab === k ? 'on ' : '') + (k === 'apercu' ? 'only-mobile' : '')} onClick={() => setTab(k)}><Ic size={17} />{l}</button>
                   ))}
-                </div>
-                <p className="hint">{PRESETS[preset].hint}</p>
-              </div>
-              <div className="grid2">
-                <Field label="Police">
-                  <select value={s.font} onChange={e => set({ font: e.target.value })}>
-                    {['Times New Roman', 'Arial', 'Calibri', 'Georgia'].map(f => <option key={f}>{f}</option>)}
-                  </select>
-                </Field>
-                <Field label="Taille">
-                  <select value={s.size} onChange={e => set({ size: +e.target.value })}>{[10, 11, 12, 13, 14].map(n => <option key={n} value={n}>{n} pt</option>)}</select>
-                </Field>
-                <Field label="Interligne">
-                  <select value={s.spacing} onChange={e => set({ spacing: +e.target.value })}>{[1, 1.15, 1.5, 2].map(n => <option key={n} value={n}>{n}</option>)}</select>
-                </Field>
-                <Field label="Numéro de page">
-                  <select value={s.footer} onChange={e => set({ footer: e.target.value as Settings['footer'] })}>
-                    <option value="number">Numéro seul</option><option value="page">« Page 5 »</option><option value="text">Texte + numéro</option>
-                  </select>
-                </Field>
-              </div>
-              {s.footer === 'text' && <Field label="Texte du pied de page"><input value={s.footerText} onChange={e => set({ footerText: e.target.value })} placeholder="Nom ou titre court" /></Field>}
-              <Field label="Numéro placé"><select value={s.numAlign} onChange={e => set({ numAlign: e.target.value as Settings['numAlign'] })}><option value="center">Au centre</option><option value="right">À droite</option></select></Field>
-              <Field label="En-tête (facultatif)"><input value={s.headerText} onChange={e => set({ headerText: e.target.value })} placeholder="Laisser vide pour aucun en-tête" /></Field>
-              <Check label="Texte justifié" checked={s.justify} onChange={v => set({ justify: v })} />
-              <Check label="Retrait de première ligne" checked={s.indent} onChange={v => set({ indent: v })} />
-              <Check label="Sommaire automatique" checked={s.toc} onChange={v => set({ toc: v })} />
-              <Check label="Liste des tableaux" checked={s.tablesList} onChange={v => set({ tablesList: v })} />
-              <Check label="Chaque titre principal sur une nouvelle page" checked={s.chapterBreak} onChange={v => set({ chapterBreak: v })} />
-              <Check label="Grands tableaux en paysage" hint="6 colonnes ou plus : seule leur page passe en paysage" checked={s.landscape} onChange={v => set({ landscape: v })} />
-              <Check label="Marge de reliure" hint="3 cm à gauche au lieu de 2,5 cm" checked={s.reliure} onChange={v => set({ reliure: v })} />
-              <Check label="Pages d’avant-texte en chiffres romains" hint="Sommaire en i, ii, iii puis le texte repart à 1" checked={s.romanPrelim} onChange={v => set({ romanPrelim: v })} />
-            </div>
-          )}
-        </div>
+                </nav>
 
-        <div className={'view ' + (tab === 'apercu' ? '' : 'hide-mobile')}>
-          {error && !dialog && <p className="error">{error}</p>}
-          {empty
-            ? <div className="emptyview"><div className="ghostpage" aria-hidden="true"><i /><i /><i className="s" /></div><p>Ton document apparaît ici dès que tu colles ton texte.</p></div>
-            : <Suspense fallback={<p className="hint">Chargement de l’aperçu…</p>}><Preview layout={layout} /></Suspense>}
+                <div className={'panel ' + (tab === 'apercu' ? 'hide-mobile' : '')} role="tabpanel">
+                  {tab === 'texte' && (
+                    <>
+                      <div className="paste-row">
+                        <button className="btn sm" onClick={paste}><IPaste size={18} />Coller mon texte</button>
+                        {!empty && <button className="link" onClick={() => { setText(''); setCover({ title: '' }); taRef.current?.focus() }}>Tout effacer</button>}
+                      </div>
+                      <textarea ref={taRef} value={text} onChange={e => onType(e.target.value)} spellCheck={false} aria-label="Ton texte" placeholder="Colle ton texte ici…" />
+                      {empty
+                        ? <p className="hint">Copie ton texte depuis Word, un mail, un PDF ou tes notes, puis colle-le ici. Tout le reste est automatique.</p>
+                        : <div className="meter" aria-live="polite"><span><b>{heads}</b> titre{heads > 1 ? 's' : ''}</span><span><b>{tables}</b> tableau{tables > 1 ? 'x' : ''}</span>{pages && <span><b>{pages}</b> page{pages > 1 ? 's' : ''}</span>}</div>}
+                      <details className="tips">
+                        <summary>Astuces de mise en page</summary>
+                        <ul>
+                          <li><b>Titres</b> : « CHAPITRE 1 », « I. », « A. », « 1.1 » sont reconnus. Tu peux aussi écrire <code># Titre</code> et <code>## Sous-titre</code>.</li>
+                          <li><b>Tableaux</b> : copie-les depuis Word, Excel ou un PDF et colle-les. Ajoute « Tableau : titre » juste avant pour la légende.</li>
+                          <li><b>Page de garde</b> : colle ton texte avec « Thème : … », « Présenté par : … » au début, elle se remplit toute seule dans l’onglet Page de garde, où tu peux tout modifier.</li>
+                          <li><b>Gras</b> : entoure un mot de deux étoiles, <code>**comme ça**</code>.</li>
+                        </ul>
+                      </details>
+                    </>
+                  )}
+
+                  {tab === 'garde' && (
+                    <div className="form">
+                      <Check label="Ajouter une page de garde" checked={sEff.cover.enabled} onChange={v => setCover({ enabled: v })} />
+                      {sEff.cover.enabled && (
+                        <>
+                          <Field label="Établissement ou société"><input value={sEff.cover.school} onChange={e => setCover({ school: e.target.value })} placeholder="Nom de l’établissement" /></Field>
+                          <Field label="Type de document"><input value={sEff.cover.kind} onChange={e => setCover({ kind: e.target.value })} placeholder="RAPPORT, DOSSIER, MÉMOIRE…" /></Field>
+                          <Field label="Titre"><textarea rows={3} value={sEff.cover.title} onChange={e => setCover({ title: e.target.value })} placeholder="Le titre de ton document" /></Field>
+                          <Field label="Présenté par"><input value={sEff.cover.author} onChange={e => setCover({ author: e.target.value })} /></Field>
+                          <Field label="Groupe / filière"><input value={sEff.cover.group ?? ''} onChange={e => setCover({ group: e.target.value })} placeholder="Licence 3 Logistique" /></Field>
+                          <Field label="Autres lignes (une par ligne)"><textarea rows={2} value={(sEff.cover.extras ?? []).join('\n')} onChange={e => setCover({ extras: e.target.value.split('\n') })} placeholder="Module : Logistique humanitaire" /></Field>
+                          <Field label="Encadreur ou responsable"><input value={sEff.cover.supervisor} onChange={e => setCover({ supervisor: e.target.value })} /></Field>
+                          <Field label="Année"><input value={sEff.cover.year} onChange={e => setCover({ year: e.target.value })} placeholder="2025-2026" /></Field>
+                          <Field label="Logo (PNG ou JPG)">
+                            <input type="file" accept="image/png,image/jpeg" onChange={e => onLogo(e.target.files?.[0])} />
+                            {s.cover.logo && <button className="link" onClick={() => setCover({ logo: undefined })}>Retirer le logo</button>}
+                          </Field>
+                        </>
+                      )}
+                    </div>
+                  )}
+
+                  {tab === 'reglages' && (
+                    <div className="form">
+                      <fieldset className="group">
+                        <legend>Modèle</legend>
+                        <div className="chips" role="group" aria-label="Modèle">
+                          {(Object.keys(PRESETS) as PresetKey[]).map(k => (
+                            <button key={k} className={'chip ' + (preset === k ? 'on' : '')} aria-pressed={preset === k} onClick={() => pickPreset(k)}>{PRESETS[k].label}</button>
+                          ))}
+                        </div>
+                        <p className="hint">{PRESETS[preset].hint}</p>
+                      </fieldset>
+                      <fieldset className="group">
+                        <legend>Texte</legend>
+                        <div className="grid2">
+                          <Field label="Police">
+                            <select value={s.font} onChange={e => set({ font: e.target.value })}>
+                              {['Times New Roman', 'Arial', 'Calibri', 'Georgia'].map(f => <option key={f}>{f}</option>)}
+                            </select>
+                          </Field>
+                          <Field label="Taille">
+                            <select value={s.size} onChange={e => set({ size: +e.target.value })}>{[10, 11, 12, 13, 14].map(n => <option key={n} value={n}>{n} pt</option>)}</select>
+                          </Field>
+                          <Field label="Interligne">
+                            <select value={s.spacing} onChange={e => set({ spacing: +e.target.value })}>{[1, 1.15, 1.5, 2].map(n => <option key={n} value={n}>{n}</option>)}</select>
+                          </Field>
+                        </div>
+                        <Check label="Texte justifié" checked={s.justify} onChange={v => set({ justify: v })} />
+                        <Check label="Retrait de première ligne" checked={s.indent} onChange={v => set({ indent: v })} />
+                      </fieldset>
+                      <fieldset className="group">
+                        <legend>Structure</legend>
+                        <Check label="Sommaire automatique" checked={s.toc} onChange={v => set({ toc: v })} />
+                        <Check label="Liste des tableaux" checked={s.tablesList} onChange={v => set({ tablesList: v })} />
+                        <Check label="Chaque titre principal sur une nouvelle page" checked={s.chapterBreak} onChange={v => set({ chapterBreak: v })} />
+                        <Check label="Grands tableaux en paysage" hint="6 colonnes ou plus : seule leur page passe en paysage" checked={s.landscape} onChange={v => set({ landscape: v })} />
+                      </fieldset>
+                      <fieldset className="group">
+                        <legend>Pages</legend>
+                        <div className="grid2">
+                          <Field label="Numéro de page">
+                            <select value={s.footer} onChange={e => set({ footer: e.target.value as Settings['footer'] })}>
+                              <option value="number">Numéro seul</option><option value="page">« Page 5 »</option><option value="text">Texte + numéro</option>
+                            </select>
+                          </Field>
+                          <Field label="Numéro placé"><select value={s.numAlign} onChange={e => set({ numAlign: e.target.value as Settings['numAlign'] })}><option value="center">Au centre</option><option value="right">À droite</option></select></Field>
+                        </div>
+                        {s.footer === 'text' && <Field label="Texte du pied de page"><input value={s.footerText} onChange={e => set({ footerText: e.target.value })} placeholder="Nom ou titre court" /></Field>}
+                        <Field label="En-tête (facultatif)"><input value={s.headerText} onChange={e => set({ headerText: e.target.value })} placeholder="Laisser vide pour aucun en-tête" /></Field>
+                        <Check label="Marge de reliure" hint="3 cm à gauche au lieu de 2,5 cm" checked={s.reliure} onChange={v => set({ reliure: v })} />
+                        <Check label="Pages d’avant-texte en chiffres romains" hint="Sommaire en i, ii, iii puis le texte repart à 1" checked={s.romanPrelim} onChange={v => set({ romanPrelim: v })} />
+                      </fieldset>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className={'view ' + (tab === 'apercu' ? '' : 'hide-mobile')}>
+                {error && !dialog && <p className="error" role="alert">{error}</p>}
+                {empty
+                  ? (
+                    <div className="emptyview">
+                      <div className="ghostpage" aria-hidden="true"><i /><i /><i /><i className="s" /></div>
+                      <h3>Ton document apparaît ici</h3>
+                      <p>Colle ton texte : les pages, le sommaire et les tableaux s’affichent tels qu’ils seront dans Word.</p>
+                      <button className="btn" onClick={paste}><IPaste size={18} />Coller mon texte</button>
+                    </div>
+                  )
+                  : <Suspense fallback={<p className="hint">Chargement de l’aperçu…</p>}><Preview layout={layout} /></Suspense>}
+              </div>
+            </div>
+          </div>
         </div>
 
         <div className={'dock' + (inView && !empty ? ' show' : '')} aria-hidden={!(inView && !empty)}>
-          <button className="btn ghost" onClick={explicitSave} disabled={empty}>Enregistrer</button>
-          <button className="btn" onClick={() => { setError(''); setDialog('download') }} disabled={empty || !blocks.length}>Télécharger</button>
+          <button className="btn ghost" onClick={explicitSave} disabled={empty} tabIndex={inView && !empty ? 0 : -1}>Enregistrer</button>
+          <button className="btn" onClick={() => { setError(''); setDialog('download') }} disabled={empty || !blocks.length} tabIndex={inView && !empty ? 0 : -1}><IDownload size={18} />Télécharger</button>
         </div>
       </main>
 
       {!install.installed && (
         <>
-          <section className="band">
-            <h2>Trois gestes, c’est fini</h2>
-            <ol className="steps">
-              <li><b>1</b><h3>Colle ton texte</h3><p>Depuis Word, un mail, un PDF ou tes notes.</p></li>
-              <li><b>2</b><h3>Choisis un modèle</h3><p>Complet, Standard ou Simple. Un seul geste.</p></li>
-              <li><b>3</b><h3>Télécharge</h3><p>Word modifiable ou PDF prêt à envoyer.</p></li>
-            </ol>
-          </section>
-
-          <section className="info">
-            <h2>Tout est fait pour toi</h2>
-            <ul className="feats">
-              <li><h3>Titres reconnus</h3><p>CHAPITRE 1, I., A., 1.1… détectés tout seuls.</p></li>
-              <li><h3>Sommaire automatique</h3><p>Avec les bons numéros de page.</p></li>
-              <li><h3>Tableaux propres</h3><p>Collés depuis Word, Excel ou un PDF, avec légendes.</p></li>
-              <li><h3>Pagination exacte</h3><p>L’aperçu montre les vraies pages.</p></li>
-              <li><h3>Page de garde</h3><p>Facultative, avec ton logo.</p></li>
-              <li><h3>Tes documents partout</h3><p>Connecte-toi (gratuit) pour les retrouver sur tous tes appareils.</p></li>
-            </ul>
-          </section>
-
-          <section className="band" id="installer">
-            <h2>Installe mondocpro</h2>
-            <p className="lead">Un accès direct depuis ton écran d’accueil, même sans connexion.</p>
-            {install.canPrompt && <button className="btn" onClick={() => install.prompt()}>Installer l’application</button>}
-            <div className="how">
-              <div><h3>Android · Chrome</h3><p>Touche <b>⋮</b> puis <b>« Installer l’application »</b>.</p></div>
-              <div><h3>iPhone · Safari</h3><p>Touche <b>Partager</b> puis <b>« Sur l’écran d’accueil »</b>.</p></div>
+          <section className="how" id="methode">
+            <div className="wrap">
+              <h2>Trois gestes, c’est fini</h2>
+              <p className="sec-lead">Pas de style à régler, pas de sommaire à mettre à jour à la main.</p>
+              <ol className="steps">
+                <li><span className="n">1</span><h3>Colle ton texte</h3><p>Depuis Word, un mail, un PDF ou tes notes.</p></li>
+                <li><span className="n">2</span><h3>Choisis un modèle</h3><p>Complet, Standard ou Simple. Un seul geste, tout se règle.</p></li>
+                <li><span className="n">3</span><h3>Télécharge</h3><p>Word modifiable ou PDF prêt à envoyer.</p></li>
+              </ol>
             </div>
           </section>
 
-          <section className="info">
-            <h2>Questions</h2>
-            <details><summary>Est-ce vraiment gratuit ?</summary><p>Oui, mondocpro est gratuit pour le moment. Un tarif sera proposé plus tard, après la période de lancement.</p></details>
-            <details><summary>Mon texte reste-t-il privé ?</summary><p>Oui. Sans compte, ton texte reste sur ton appareil. Si tu te connectes, tes documents sont gardés dans ton compte, visibles par toi seul.</p></details>
-            <details><summary>Puis-je modifier le fichier ?</summary><p>Oui. Le Word est un vrai fichier, avec de vrais styles de titres et un sommaire déjà rempli.</p></details>
-            <details><summary>Comment sont reconnus les tableaux ?</summary><p>Copie-les depuis Word, Excel ou un PDF, puis colle-les dans ton texte. Ajoute « Tableau : titre » juste avant pour la légende.</p></details>
-            <details><summary>Où sont mes documents ?</summary><p>Enregistrés automatiquement sur ton appareil, dans « Mes documents ». Connecte-toi pour les retrouver sur tous tes appareils.</p></details>
+          <section className="feat" id="fonctions">
+            <div className="wrap split">
+              <div className="split-head">
+                <h2>Tout est fait pour toi</h2>
+                <p className="sec-lead">Ce que Word te fait faire à la main, mondocpro le fait d’un coup.</p>
+              </div>
+              <dl className="feats">
+                <div><dt><IHeading size={20} />Titres reconnus</dt><dd>CHAPITRE 1, I., A., 1.1… détectés tout seuls.</dd></div>
+                <div><dt><IList size={20} />Sommaire automatique</dt><dd>Avec les bons numéros de page.</dd></div>
+                <div><dt><ITable size={20} />Tableaux propres</dt><dd>Collés depuis Word, Excel ou un PDF, avec légendes.</dd></div>
+                <div><dt><IHash size={20} />Pagination exacte</dt><dd>L’aperçu montre les vraies pages.</dd></div>
+                <div><dt><ICover size={20} />Page de garde</dt><dd>Facultative, avec ton logo.</dd></div>
+                <div><dt><ICloud size={20} />Tes documents partout</dt><dd>Connecte-toi (gratuit) pour les retrouver sur tous tes appareils.</dd></div>
+              </dl>
+            </div>
           </section>
+
+          <section className="install" id="installer">
+            <div className="wrap">
+              <div className="install-box">
+                <div>
+                  <h2>Installe mondocpro</h2>
+                  <p className="sec-lead">Un accès direct depuis ton écran d’accueil, même sans connexion.</p>
+                  {install.canPrompt && <button className="btn light lg" onClick={() => install.prompt()}><IDownload size={20} />Installer l’application</button>}
+                </div>
+                <div className="how-to">
+                  <div><h3><IPhone size={20} />Android · Chrome</h3><p>Touche <b>⋮</b> puis <b>« Installer l’application »</b>.</p></div>
+                  <div><h3><IShare size={20} />iPhone · Safari</h3><p>Touche <b>Partager</b> puis <b>« Sur l’écran d’accueil »</b>.</p></div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section className="faq" id="faq">
+            <div className="wrap split">
+              <div className="split-head"><h2>Questions</h2></div>
+              <div>
+                <details className="qa"><summary>Est-ce vraiment gratuit ?</summary><p>Oui, mondocpro est gratuit pour le moment. Un tarif sera proposé plus tard, après la période de lancement.</p></details>
+                <details className="qa"><summary>Mon texte reste-t-il privé ?</summary><p>Oui. Sans compte, ton texte reste sur ton appareil. Si tu te connectes, tes documents sont gardés dans ton compte, visibles par toi seul.</p></details>
+                <details className="qa"><summary>Puis-je modifier le fichier ?</summary><p>Oui. Le Word est un vrai fichier, avec de vrais styles de titres et un sommaire déjà rempli.</p></details>
+                <details className="qa"><summary>Comment sont reconnus les tableaux ?</summary><p>Copie-les depuis Word, Excel ou un PDF, puis colle-les dans ton texte. Ajoute « Tableau : titre » juste avant pour la légende.</p></details>
+                <details className="qa"><summary>Où sont mes documents ?</summary><p>Enregistrés automatiquement sur ton appareil, dans « Mes documents ». Connecte-toi pour les retrouver sur tous tes appareils.</p></details>
+              </div>
+            </div>
+          </section>
+
           <footer className="foot">
-            <p className="contact">Service client : <a href={TEL_URL}>{PHONE_SHOW}</a> · <a href={WA_URL} target="_blank" rel="noopener noreferrer">WhatsApp</a></p>
-            <button className="link" onClick={() => setDialog('about')}>À propos</button> · mondocpro · fait en Côte d’Ivoire
+            <div className="wrap foot-in">
+              <div>
+                <a className="brand" href="#top"><Logo size={30} /><span>mondoc<i>pro</i></span></a>
+                <p style={{ marginTop: 10 }}>Fait en Côte d’Ivoire, pour les étudiants.</p>
+              </div>
+              <div className="foot-row">
+                <span>Service client : <a href={TEL_URL}>{PHONE_SHOW}</a></span>
+                <a href={WA_URL} target="_blank" rel="noopener noreferrer">WhatsApp</a>
+                <button className="link" onClick={() => setDialog('about')}>À propos</button>
+              </div>
+            </div>
           </footer>
         </>
       )}

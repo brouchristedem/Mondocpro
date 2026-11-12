@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { Doc } from './storage'
+import { useDialog } from './useDialog'
 
 interface Props {
   docs: Doc[]; currentId: string; onOpen: (d: Doc) => void; onDelete: (id: string) => void; onNew: () => void; onClose: () => void
@@ -22,9 +23,10 @@ const ago = (t: number) => {
 /** « Mes documents » : les documents enregistrés sur cet appareil. */
 export default function LibraryDialog({ docs, currentId, onOpen, onDelete, onNew, onClose, account, syncLabel, onLogin, onLogout, onAdmin }: Props) {
   const [ask, setAsk] = useState('')
+  const ref = useDialog(onClose)
   return (
     <div className="scrim" onClick={onClose}>
-      <div className="modal" role="dialog" aria-modal="true" aria-label="Mes documents" onClick={e => e.stopPropagation()}>
+      <div className="modal" ref={ref} role="dialog" aria-modal="true" aria-label="Mes documents" onClick={e => e.stopPropagation()}>
         <button className="x" onClick={onClose} aria-label="Fermer">×</button>
         <h2>Mes documents</h2>
         {account === null && onLogin && (

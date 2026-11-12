@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useDialog } from './useDialog'
 
 type Acc = typeof import('./account')
 interface Props { kind: 'login' | 'pay'; acc: Acc; onClose: () => void; onDone: () => void }
@@ -18,6 +19,7 @@ export default function Modal({ kind, acc, onClose, onDone }: Props) {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [waiting, setWaiting] = useState(false)
+  const ref = useDialog(onClose)
 
   const run = async (fn: () => Promise<void>) => {
     setBusy(true); setErr('')
@@ -27,7 +29,7 @@ export default function Modal({ kind, acc, onClose, onDone }: Props) {
 
   return (
     <div className="scrim" onClick={onClose}>
-      <div className="modal" role="dialog" aria-modal="true" onClick={e => e.stopPropagation()}>
+      <div className="modal" ref={ref} role="dialog" aria-modal="true" onClick={e => e.stopPropagation()}>
         <button className="x" onClick={onClose} aria-label="Fermer">×</button>
         {kind === 'login' ? (
           <>

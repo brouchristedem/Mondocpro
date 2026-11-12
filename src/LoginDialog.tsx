@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useDialog } from './useDialog'
 
 type Acc = typeof import('./account')
 interface Props { acc: Acc; onClose: () => void }
@@ -18,6 +19,7 @@ export default function LoginDialog({ acc, onClose }: Props) {
   const [sent, setSent] = useState(false)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+  const ref = useDialog(onClose)
   const run = async (fn: () => Promise<void>) => {
     setBusy(true); setErr('')
     try { await fn() } catch (e) {
@@ -28,7 +30,7 @@ export default function LoginDialog({ acc, onClose }: Props) {
   }
   return (
     <div className="scrim" onClick={onClose}>
-      <div className="modal" role="dialog" aria-modal="true" aria-label="Connexion" onClick={e => e.stopPropagation()}>
+      <div className="modal" ref={ref} role="dialog" aria-modal="true" aria-label="Connexion" onClick={e => e.stopPropagation()}>
         <button className="x" onClick={onClose} aria-label="Fermer">×</button>
         <h2>Retrouve tes documents partout</h2>
         <p>Connecte-toi : tes documents sont gardés dans ton compte et disponibles sur tous tes appareils. C’est gratuit.</p>

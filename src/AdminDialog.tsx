@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { AdminState } from './account'
+import { useDialog } from './useDialog'
 
 type Acc = typeof import('./account')
 
@@ -8,6 +9,7 @@ export default function AdminDialog({ acc, onClose }: { acc: Acc; onClose: () =>
   const [st, setSt] = useState<AdminState | null>(null)
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
+  const ref = useDialog(onClose)
 
   const call = useCallback(async (show?: boolean) => {
     setBusy(true); setErr('')
@@ -22,7 +24,7 @@ export default function AdminDialog({ acc, onClose }: { acc: Acc; onClose: () =>
 
   return (
     <div className="scrim" onClick={onClose}>
-      <div className="modal" role="dialog" aria-modal="true" aria-label="Espace admin" onClick={e => e.stopPropagation()}>
+      <div className="modal" ref={ref} role="dialog" aria-modal="true" aria-label="Espace admin" onClick={e => e.stopPropagation()}>
         <button className="x" onClick={onClose} aria-label="Fermer">×</button>
         <h2>Espace admin</h2>
         {st && (
