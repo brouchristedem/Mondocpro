@@ -10,11 +10,11 @@ export default function AboutDialog({ onClose }: { onClose: () => void }) {
         <button className="x" onClick={onClose} aria-label="Fermer">×</button>
         <img className="about-photo" src="/edem.jpg" width="400" height="400" alt="Christ Edem" loading="lazy" />
         <h2>Christ Edem</h2>
-        <p>Étudiant en Licence 3 Logistique à Abidjan. Je crée des outils web simples pour les étudiants en Côte d’Ivoire.</p>
-        <p>mondocpro met en page ton texte (page de garde, sommaire, pagination, tableaux) et te donne un Word prêt à rendre. Sans compte, ton texte reste sur ton appareil.</p>
+        <p>Développeur web basé à Abidjan et étudiant en Licence 3 Logistique. Je conçois des outils numériques simples et fiables pour les étudiants et les professionnels de Côte d’Ivoire.</p>
+        <p>mondocpro met en forme vos documents académiques : page de garde, sommaire, pagination et tableaux. Vous obtenez un fichier Word propre, prêt à être remis. Aucun compte n’est requis : votre texte reste sur votre appareil.</p>
         <a className="btn" href={WA_URL} target="_blank" rel="noopener noreferrer">Écrire sur WhatsApp</a>
         <a className="btn ghost" href={TEL_URL}>Appeler {PHONE_SHOW}</a>
-        <p className="tiny"><a href="https://christedem.vercel.app" target="_blank" rel="noopener noreferrer">Mon portfolio</a> · Un site Edem Digital Group</p>
+        <p className="tiny"><a href="https://portfolio-christedem.vercel.app" target="_blank" rel="noopener noreferrer">Mon portfolio</a> · Un site Edem Digital Group</p>
       </div>
     </div>
   )
