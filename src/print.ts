@@ -12,9 +12,9 @@ const STYLE = `
   html.printing,html.printing body{background:#fff!important;margin:0!important;padding:0!important;height:auto!important;overflow:visible!important}
   html.printing body>*:not(#print-root){display:none!important}
   html.printing #print-root{display:block!important}
-  #print-root .pgw{break-after:page;page-break-after:always;break-inside:avoid;overflow:hidden;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  #print-root .pgw{width:210mm;height:297mm;break-after:page;page-break-after:always;break-inside:avoid;overflow:hidden;-webkit-print-color-adjust:exact;print-color-adjust:exact}
   #print-root .pgw:last-child{break-after:auto;page-break-after:auto}
-  #print-root .pgw.land{page:land}
+  #print-root .pgw.land{page:land;width:297mm;height:210mm}
   #print-root .sheet{box-shadow:none!important;margin:0!important}
 }`
 

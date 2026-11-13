@@ -26,7 +26,7 @@ export default function DownloadDialog({ defaultName, pages, busy, error, onPick
           </button>
         </div>
         <p className="tiny">{busy ? 'Préparation du fichier…' : isIOS()
-          ? 'PDF : touche Partager dans la fenêtre qui s’ouvre, puis « Enregistrer dans Fichiers ».'
+          ? 'PDF : il est enregistré directement dans tes Téléchargements (app Fichiers).'
           : 'PDF : dans la fenêtre qui s’ouvre, choisis « Enregistrer au format PDF ».'}</p>
         {error && <p className="error">{error}</p>}
       </div>

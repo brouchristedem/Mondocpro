@@ -277,9 +277,16 @@ export default function App() {
         setDialog(null); say('Ton PDF est téléchargé.')
       } else {
         const lay = await makeLayout(blocks, sEff)
-        const { printPdf } = await import('./print')
-        setDialog(null)
-        await printPdf(lay.pages, name)
+        const { needsDirectPdf, makeRasterPdf } = await import('./rasterPdf')
+        if (needsDirectPdf()) {
+          // iPhone/iPad : Safari imprime avec son propre en-tête/pied et rogne la page → PDF fabriqué ici
+          save(await makeRasterPdf(lay.pages), 'pdf', name)
+          setDialog(null); say('Ton PDF est téléchargé.')
+        } else {
+          const { printPdf } = await import('./print')
+          setDialog(null)
+          await printPdf(lay.pages, name)
+        }
       }
     } catch (e) { setError(String((e as Error).message || e)) }
     setBusy(false)
