@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Layout } from './lib/layout'
+import { IExpand } from './icons'
 
-const STEPS = [0, 0.75, 1] // 0 = ajusté à la largeur de l'écran
+const STEPS = [0, 0.75, 1, 1.25] // 0 = ajusté à la largeur de l'écran
 
 /** Les vraies pages, avec pied de page et sommaire numérotés : ce que tu vois est ce que Word affichera. */
-export default function Preview({ layout }: { layout: Layout | null }) {
+export default function Preview({ layout, fill, onExpand }: { layout: Layout | null; fill?: boolean; onExpand?: () => void }) {
   const box = useRef<HTMLDivElement>(null)
   const [avail, setAvail] = useState(800)
   const [step, setStep] = useState(0)
@@ -23,12 +24,13 @@ export default function Preview({ layout }: { layout: Layout | null }) {
   const zoomed = STEPS[step] > 0
   const label = zoomed ? `${Math.round(STEPS[step] * 100)} %` : 'Ajusté'
   return (
-    <div className="preview" ref={box}>
+    <div className={'preview' + (fill ? ' fill' : '')} ref={box}>
       {layout && (
         <div className="zoombar" role="group" aria-label="Zoom de l’aperçu">
-          <button onClick={() => setStep(v => Math.max(0, v - 1))} disabled={step === 0} aria-label="Réduire">−</button>
+          <button onClick={() => setStep(v => Math.max(0, v - 1))} disabled={step === 0} aria-label="Zoom arrière">−</button>
           <span aria-live="polite">{label}</span>
-          <button onClick={() => setStep(v => Math.min(STEPS.length - 1, v + 1))} disabled={step === STEPS.length - 1} aria-label="Agrandir">+</button>
+          <button onClick={() => setStep(v => Math.min(STEPS.length - 1, v + 1))} disabled={step === STEPS.length - 1} aria-label="Zoom avant">+</button>
+          {onExpand && <button className="expand" onClick={onExpand} aria-label="Agrandir l’aperçu en plein écran" title="Agrandir"><IExpand size={18} /></button>}
         </div>
       )}
       {!layout && <p className="hint">Chargement de l’aperçu…</p>}

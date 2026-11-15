@@ -85,3 +85,8 @@ export function nameFor(text: string, coverTitle: string, firstHeading?: string)
   const t = pick.replace(/^#+\s*/, '').replace(/\*+/g, '').trim()
   return t ? (t.length > 60 ? t.slice(0, 57) + '…' : t) : 'Sans titre'
 }
+
+/** Efface les documents de cet appareil (déconnexion : un ordinateur partagé ne garde rien de la personne précédente). */
+export function purgeLocal() {
+  try { for (const k of [LIST, CURRENT, TOMBS, OLD]) localStorage.removeItem(k); localStorage.setItem(LIST, '[]') } catch { /* */ }
+}

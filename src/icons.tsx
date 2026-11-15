@@ -30,3 +30,8 @@ export const IUser = make(<><circle cx="12" cy="8" r="3.5" /><path d="M5 20a7 7 
 export const IEye = make(<><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" /><circle cx="12" cy="12" r="2.8" /></>)
 export const IEdit = make(<path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17zM14.5 7.5l3 3" />)
 export const ISliders = make(<path d="M4 7h9M17 7h3M4 17h3M11 17h9M13 4v6M7 14v6" />)
+export const IExpand = make(<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />)
+export const IClose = make(<path d="M6 6l12 12M18 6L6 18" />)
+export const IZoom = make(<><circle cx="11" cy="11" r="6.5" /><path d="M16 16l4.5 4.5M11 8.5v5M8.5 11h5" /></>)
+export const IBack = make(<path d="M15 6l-6 6 6 6" />)
+export const INext = make(<path d="M9 6l6 6-6 6" />)

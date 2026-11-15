@@ -11,8 +11,8 @@ const L = (re: string) => new RegExp(`^(?:${re})\\s*[:：]\\s*(.+)$`, 'i')
 const TITLE = L('th[èe]me|sujet|titre|intitul[ée]|objet')
 const AUTHOR = L('pr[ée]sent[ée]e?\\s+par|r[ée]alis[ée]e?\\s+par|r[ée]dig[ée]e?\\s+par|[ée]labor[ée]e?\\s+par|soutenu(?:e)?\\s+par|pr[ée]par[ée]e?\\s+par|auteurs?|[ée]tudiants?|[ée]l[èe]ve|stagiaire|[ée]tudiante?|candidate?|nom(?:\\s+et\\s+pr[ée]noms?)?|par')
 /** Sans deux-points : « Réalisé par Awa Koné », « Sous la direction de Dr Yao ». */
-const AUTHOR_NC = /^(?:pr[ée]sent[ée]|r[ée]alis[ée]|r[ée]dig[ée]|[ée]labor[ée]|pr[ée]par[ée]|soutenu)e?\s+par\s+(.+)$/i
-const SUPERVISOR_NC = /^(?:sous\s+la\s+direction\s+(?:de\s+la|de|du)|encadr[ée]e?\s+par)\s+(.+)$/i
+const AUTHOR_NC = /^(?:pr[ée]sent[ée]|r[ée]alis[ée]|r[ée]dig[ée]|[ée]labor[ée]|pr[ée]par[ée]|soutenu)e?\s+par\s+(?![:：])(.+)$/i
+const SUPERVISOR_NC = /^(?:sous\s+la\s+direction\s+(?:de\s+la|de|du)|encadr[ée]e?\s+par)\s+(?![:：])(.+)$/i
 const SUPERVISOR = L('encadr(?:eur|eure|ant|ante)(?:\\s+(?:acad[ée]mique|p[ée]dagogique|professionnel(?:le)?))?|encadr[ée]e?\\s+par|directeur\\s+de\\s+(?:m[ée]moire|th[èe]se)|directrice\\s+de\\s+(?:m[ée]moire|th[èe]se)|sous\\s+la\\s+direction\\s+(?:de|du|de\\s+la)|superviseure?|tuteur|tutrice|professeur|enseignant|enseignante|formateur|formatrice|responsable|ma[iî]tre\\s+de\\s+stage|encadreur\\s+professionnel|charg[ée]e?\\s+de\\s+cours')
 const GROUP = L('groupe(?:\\s*/\\s*fili[èe]re)?|fili[èe]re|niveau|classe|parcours|sp[ée]cialit[ée]|option')
 const SCHOOL_LBL = L('[ée]tablissement|universit[ée]|institut|[ée]cole|facult[ée]|entreprise|soci[ée]t[ée]|organisme|structure|d[ée]partement')

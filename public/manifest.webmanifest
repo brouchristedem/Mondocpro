@@ -1,7 +1,7 @@
 {
   "name": "mondocpro",
   "short_name": "mondocpro",
-  "description": "Colle ton texte, récupère un Word impeccable : titres, sommaire, pagination et tableaux. Word et PDF.",
+  "description": "Une mise en page impeccable, plus vite que Word : titres, sommaire, pagination, tableaux et page de garde. Word et PDF.",
   "lang": "fr",
   "id": "/",
   "start_url": "/?source=pwa",
@@ -10,10 +10,28 @@
   "orientation": "portrait",
   "background_color": "#F7F8FC",
   "theme_color": "#2347E0",
-  "categories": ["productivity", "utilities"],
+  "categories": [
+    "productivity",
+    "utilities"
+  ],
   "icons": [
-    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
   ]
 }

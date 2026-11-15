@@ -3,13 +3,14 @@ import { extractCover } from './lib/cover'
 import { parse } from './lib/parse'
 import type { Layout } from './lib/layout'
 import { DEFAULTS, DEFAULT_PRESET, PRESETS, type Block, type Cover, type PresetKey, type Settings } from './lib/types'
-import { clearTombs, currentId, dropLocal, fromCloud, getDoc, listDocs, nameFor, newId, removeDoc, saveDoc, setCurrent, tombs, type Doc } from './storage'
+import { clearTombs, currentId, dropLocal, fromCloud, getDoc, listDocs, nameFor, newId, purgeLocal, removeDoc, saveDoc, setCurrent, tombs, type Doc } from './storage'
+import type { FocusMode } from './Focus'
 import { deletedMarker, planSync, toCloud } from './sync'
 import { useInstall } from './install'
 import ContactFab from './ContactFab'
 import Logo from './Logo'
 import CoverPicker from './CoverPicker'
-import { IArrow, ICheck, ICover, IDownload, IEdit, IEye, IFolder, IHash, IList, IPaste, IPhone, IPlus, IShare, ISliders, ITable, ICloud, IHeading } from './icons'
+import { IArrow, ICheck, ICover, IDownload, IEdit, IEye, IFolder, IHash, IList, IPaste, IPhone, IPlus, IShare, ISliders, ITable, ICloud, IHeading, IExpand } from './icons'
 import { PHONE_SHOW, TEL_URL, WA_URL } from './contact'
 
 const AdminDialog = lazy(() => import('./AdminDialog'))
@@ -19,9 +20,12 @@ const Preview = lazy(() => import('./Preview'))
 const DownloadDialog = lazy(() => import('./DownloadDialog'))
 const LibraryDialog = lazy(() => import('./LibraryDialog'))
 const LoginDialog = lazy(() => import('./LoginDialog'))
+const Focus = lazy(() => import('./Focus'))
+const CoverShowcase = lazy(() => import('./CoverShowcase'))
 type Acc = typeof import('./account')
 const HAS_BACKEND = !!import.meta.env.VITE_FIREBASE_API_KEY
 const ACCT_FLAG = 'mondocpro:acct'
+const UID_KEY = 'mondocpro:uid'
 const PDF_URL = import.meta.env.VITE_PDF_URL as string | undefined
 
 const makeLayout = (...a: Parameters<typeof import('./lib/layout').layoutDocument>) => import('./lib/layout').then(m => m.layoutDocument(...a))
@@ -79,7 +83,12 @@ export default function App() {
   const isAdmin = !!account?.email && ADMIN_EMAILS.includes(account.email.toLowerCase()) // simple affichage du bouton : l'accès réel est vérifié côté serveur
   const taRef = useRef<HTMLTextAreaElement>(null)
   const atelierRef = useRef<HTMLElement>(null)
-  const [inView, setInView] = useState(false)
+  const [view, setView] = useState<'home' | 'app'>('home') // à chaque visite : l'accueil d'abord
+  const [authReady, setAuthReady] = useState(!HAS_BACKEND)
+  const [starting, setStarting] = useState(false)
+  const [focus, setFocus] = useState<FocusMode | null>(null)
+  const wantApp = useRef(false)
+  const inView = view === 'app'
   const toastT = useRef<number>(0)
 
   /** Page de garde écrite au début d'un texte collé : ses infos passent dans l'onglet « Page de garde » (modifiable là-bas) et sortent du texte. */
@@ -124,15 +133,6 @@ export default function App() {
       .catch(() => {})
   }, [install.installed])
 
-  // les boutons Enregistrer / Télécharger ne s'affichent que sur l'atelier (pas sur l'accueil)
-  useEffect(() => {
-    const el = atelierRef.current
-    if (!el || !('IntersectionObserver' in window)) { setInView(true); return }
-    const io = new IntersectionObserver(([e]) => setInView(e.isIntersecting), { threshold: 0.05 })
-    io.observe(el)
-    return () => io.disconnect()
-  }, [])
-
   // enregistrement automatique (dans cet appareil)
   const persist = useCallback((): boolean => {
     if (!text.trim()) return true
@@ -176,7 +176,7 @@ export default function App() {
       accRef.current = import('./account').then(async m => {
         setAcc(m)
         await m.finishLink().catch(() => {})
-        stopWatch.current = m.watch(a => { setAccount(a); if (a) { try { localStorage.setItem(ACCT_FLAG, '1') } catch { /* */ } } })
+        stopWatch.current = m.watch(a => { setAccount(a); setAuthReady(true); if (a) { try { localStorage.setItem(ACCT_FLAG, '1') } catch { /* */ } } })
         return m
       })
     }
@@ -186,32 +186,78 @@ export default function App() {
     if (!HAS_BACKEND) return
     let flag = false
     try { flag = localStorage.getItem(ACCT_FLAG) === '1' } catch { /* */ }
-    if (flag || /[?&]oobCode=/.test(location.search)) loadAcc()
+    const back = /[?&]oobCode=/.test(location.search) // retour du lien reçu par e-mail : on entre directement dans l'espace
+    if (back) wantApp.current = true
+    if (flag || back) loadAcc()
     return () => stopWatch.current()
   }, [loadAcc])
-  useEffect(() => { if (account && dialog === 'login') { setDialog(null); say('Connecté : tes documents sont synchronisés.') } }, [account, dialog, say])
+  // navigation : accueil ⇄ espace de travail (le bouton Retour du navigateur ramène à l'accueil)
+  const go = useCallback((v: 'home' | 'app') => {
+    if (v === 'app') { if (location.hash !== '#espace') history.pushState(null, '', '#espace') }
+    else if (location.hash === '#espace') history.replaceState(null, '', location.pathname + location.search)
+    setView(v); window.scrollTo(0, 0)
+  }, [])
+  useEffect(() => {
+    if (location.hash === '#espace') history.replaceState(null, '', location.pathname + location.search)
+    const onPop = () => setView(location.hash === '#espace' ? 'app' : 'home')
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [])
+  // « Commencer » : connexion d'abord (Google ou e-mail), puis l'espace de travail ; tout est enregistré dans le compte
+  useEffect(() => {
+    if (!wantApp.current || !authReady) return
+    if (account) { wantApp.current = false; setStarting(false); if (dialog === 'login') { setDialog(null); say('Connecté : tes documents sont enregistrés dans ton compte.') } go('app') }
+    else if (starting) { setStarting(false); setDialog('login') }
+  }, [account, authReady, starting, dialog, say, go])
+  // plus de compte (déconnexion, session expirée) : retour à l'accueil, jamais d'éditeur sans connexion
+  useEffect(() => {
+    if (HAS_BACKEND && authReady && !account && view === 'app') { wantApp.current = true; go('home'); setDialog('login') }
+  }, [authReady, account, view, go])
+  const start = () => {
+    if (!HAS_BACKEND) return go('app')
+    wantApp.current = true; setStarting(true); loadAcc()
+  }
 
-  const syncAll = useCallback(async () => {
-    if (!acc || !uid || syncing.current) return
-    syncing.current = true; setSyncState('syncing')
-    try {
-      persistRef.current()
-      const plan = planSync(listDocs(), await acc.listCloudDocs(uid), tombs())
-      for (const c of plan.pull) saveDoc(fromCloud(c))
-      for (const id of plan.removeLocal) dropLocal(id)
-      await Promise.all([
-        ...plan.push.map(d => acc.saveCloudDoc(uid, toCloud(d))),
-        ...plan.pushDeleted.map(x => acc.saveCloudDoc(uid, deletedMarker(x.id, x.updatedAt))),
-      ])
-      clearTombs(plan.pushDeleted.map(x => x.id))
-      setDocs(listDocs())
-      const here = docIdRef.current
-      const fresh = plan.pull.find(c => c.id === here)
-      if (fresh) { const d = fromCloud(fresh); const r = adoptCover(d.text, d.s); setText(r.text); setS(r.s); setPreset(d.preset); setSaved('saved') }
-      setSyncState('ok')
-    } catch { setSyncState('error') }
-    syncing.current = false
-  }, [acc, uid])
+  /** Remet l'éditeur à zéro (nouvelle personne sur cet appareil, déconnexion). */
+  const resetEditor = useCallback(() => {
+    const d = blank()
+    window.clearTimeout(pushT.current)
+    firstRun.current = true
+    setDocId(d.id); setText(''); setS(DEFAULTS); setPreset(DEFAULT_PRESET); setSaved('idle'); setDocs([]); setLayout(null)
+  }, [])
+  const syncP = useRef<Promise<boolean> | null>(null)
+  const syncAll = useCallback((): Promise<boolean> => {
+    if (!acc || !uid) return Promise.resolve(false)
+    if (syncP.current) return syncP.current
+    const run = async (): Promise<boolean> => {
+      setSyncState('syncing')
+      try {
+        // un autre compte s'est connecté sur cet appareil : ses documents ne doivent JAMAIS partir dans le compte d'un autre
+        let last = ''
+        try { last = localStorage.getItem(UID_KEY) || '' } catch { /* */ }
+        let fresh = false
+        if (last && last !== uid) { purgeLocal(); resetEditor(); fresh = true }
+        try { localStorage.setItem(UID_KEY, uid) } catch { /* */ }
+        if (!fresh) persistRef.current()
+        const plan = planSync(listDocs(), await acc.listCloudDocs(uid), tombs())
+        for (const c of plan.pull) saveDoc(fromCloud(c))
+        for (const id of plan.removeLocal) dropLocal(id)
+        await Promise.all([
+          ...plan.push.map(d => acc.saveCloudDoc(uid, toCloud(d))),
+          ...plan.pushDeleted.map(x => acc.saveCloudDoc(uid, deletedMarker(x.id, x.updatedAt))),
+        ])
+        clearTombs(plan.pushDeleted.map(x => x.id))
+        setDocs(listDocs())
+        const here = docIdRef.current
+        const fr = plan.pull.find(c => c.id === here)
+        if (fr) { const d = fromCloud(fr); const r = adoptCover(d.text, d.s); setText(r.text); setS(r.s); setPreset(d.preset); setSaved('saved') }
+        setSyncState('ok')
+        return true
+      } catch { setSyncState('error'); return false }
+    }
+    syncP.current = run().finally(() => { syncP.current = null })
+    return syncP.current
+  }, [acc, uid, resetEditor])
   useEffect(() => {
     if (!uid) { setSyncState('off'); return }
     syncAll()
@@ -220,7 +266,17 @@ export default function App() {
     return () => document.removeEventListener('visibilitychange', onVis)
   }, [uid, syncAll])
   const openLogin = async () => { await loadAcc(); setDialog('login') }
-  const logout = async () => { await acc?.logout(); try { localStorage.removeItem(ACCT_FLAG) } catch { /* */ } setAccount(null); setDialog(null); say('Déconnecté. Tes documents restent sur cet appareil.') }
+  const logout = async () => {
+    // tout part d'abord dans le compte ; seulement ensuite on efface cet appareil (ordinateur partagé, cyber)
+    let ok = await syncAll()
+    if (!ok) ok = await syncAll()
+    if (!ok && !window.confirm('Certains documents ne sont pas encore enregistrés dans ton compte (pas de connexion ?). Te déconnecter les effacerait de cet appareil. Te déconnecter quand même ?')) return
+    wantApp.current = false; setDialog(null); setFocus(null); go('home')
+    await acc?.logout()
+    try { localStorage.removeItem(ACCT_FLAG); localStorage.removeItem(UID_KEY) } catch { /* */ }
+    purgeLocal(); resetEditor(); setAccount(null)
+    say('Déconnecté. Tes documents restent dans ton compte.')
+  }
   const removeOne = (id: string) => {
     removeDoc(id); setDocs(listDocs())
     if (id === docId) setSaved('idle')
@@ -305,40 +361,46 @@ export default function App() {
 
   return (
     <>
-      <a className="skip" href="#atelier">Aller à l’éditeur</a>
+      <a className="skip" href={view === 'app' ? '#atelier' : '#top'}>{view === 'app' ? 'Aller à l’éditeur' : 'Aller au contenu'}</a>
       <header className={'nav' + (isAdmin ? ' crowded' : '')}>
         <div className="wrap nav-in">
-          <a className="brand" href="#top" aria-label="mondocpro, accueil"><Logo size={34} /><span>mondoc<i>pro</i></span></a>
-          {!install.installed && (
+          <a className="brand" href="/" aria-label="mondocpro, accueil" onClick={e => { if (view === 'app') { e.preventDefault(); go('home') } }}><Logo size={34} /><span>mondoc<i>pro</i></span></a>
+          {view === 'home' && (
             <nav className="nav-links" aria-label="Sections">
-              <a href="#methode">Comment ça marche</a><a href="#fonctions">Fonctions</a><a href="#faq">Questions</a>
+              <a href="#methode">Comment ça marche</a><a href="#modeles">Pages de garde</a><a href="#fonctions">Fonctions</a><a href="#faq">Questions</a>
             </nav>
           )}
           <div className="nav-actions">
             {isAdmin && <button className="nav-btn" onClick={async () => { await loadAcc(); setDialog('admin') }}>Admin</button>}
-            {HAS_BACKEND && (account
-              ? <button className="nav-btn" onClick={() => { setDocs(listDocs()); setDialog('library') }}>Mon compte</button>
-              : <button className="nav-btn" onClick={openLogin}>Connexion</button>)}
-            {!install.installed && <button className="nav-btn solid inst" onClick={goInstall}>Installer</button>}
+            {view === 'app'
+              ? <>
+                  <button className="nav-btn" onClick={() => { setDocs(listDocs()); setDialog('library') }}>Mon compte</button>
+                  <button className="nav-btn" onClick={() => go('home')}>Accueil</button>
+                </>
+              : HAS_BACKEND && (account
+                ? <button className="nav-btn solid" onClick={() => go('app')}>Mon espace</button>
+                : <button className="nav-btn solid" onClick={start}>Connexion</button>)}
+            {view === 'home' && !install.installed && <button className="nav-btn inst" onClick={goInstall}>Installer</button>}
           </div>
         </div>
       </header>
 
-      {!install.installed && (
+      {view === 'home' && (
+        <>
         <section className="hero" id="top">
           <div className="wrap">
             <div>
               <span className="pill">Gratuit pour le moment</span>
-              <h1><span>Colle ton texte.</span><span>Récupère un Word impeccable.</span></h1>
-              <p className="lead">Titres, sommaire, pagination et tableaux se mettent en page tout seuls. Tu télécharges en Word ou en PDF, prêt à rendre.</p>
+              <h1><span>Une mise en page impeccable.</span><span>Plus vite que Word.</span></h1>
+              <p className="lead">Écris ou colle ton texte : titres, sommaire, pagination, tableaux et page de garde se placent tout seuls. Tu télécharges en Word ou en PDF.</p>
               <div className="cta-row">
-                <a className="btn lg" href="#atelier">Mettre mon texte en page <IArrow size={20} /></a>
+                <button className="btn lg" onClick={start} disabled={starting}>{account ? 'Ouvrir mon espace' : 'Commencer gratuitement'} <IArrow size={20} /></button>
                 <a className="btn-text" href="#methode">Voir comment ça marche</a>
               </div>
               <ul className="proof">
-                <li><ICheck size={18} />Sans inscription</li>
+                <li><ICheck size={18} />Connexion Google ou e-mail</li>
+                <li><ICheck size={18} />Enregistrement automatique</li>
                 <li><ICheck size={18} />Word et PDF</li>
-                <li><ICheck size={18} />Sur téléphone</li>
                 {users !== null && <li><ICheck size={18} />{users.toLocaleString('fr-FR')} inscrit{users > 1 ? 's' : ''}</li>}
               </ul>
               <p className="fine">Offre de lancement : gratuit pour le moment. Un tarif sera proposé plus tard.</p>
@@ -375,11 +437,93 @@ export default function App() {
             </div>
           </div>
         </section>
+
+      <section className="how" id="methode">
+            <div className="wrap">
+              <h2>Trois gestes, c’est fini</h2>
+              <p className="sec-lead">Pas de style à régler, pas de sommaire à mettre à jour à la main.</p>
+              <ol className="steps">
+                <li><span className="n">1</span><h3>Écris ou colle ton texte</h3><p>Directement sur la feuille, ou depuis Word, un mail, un PDF ou tes notes.</p></li>
+                <li><span className="n">2</span><h3>Choisis ton modèle</h3><p>Complet, Standard ou Simple, et une page de garde parmi 10. Un geste, tout se règle.</p></li>
+                <li><span className="n">3</span><h3>Télécharge</h3><p>Word modifiable ou PDF prêt à envoyer.</p></li>
+              </ol>
+            </div>
+          </section>
+
+          <section className="covers" id="modeles">
+            <div className="wrap">
+              <h2>10 pages de garde, 10 styles</h2>
+              <p className="sec-lead">Sobres, élégantes, pour tous. Tu changes de modèle en un geste et tu vois le résultat en grand avant de choisir.</p>
+            </div>
+            <Suspense fallback={<div className="strip-wait" />}><CoverShowcase onStart={start} /></Suspense>
+          </section>
+
+          <section className="feat" id="fonctions">
+            <div className="wrap split">
+              <div className="split-head">
+                <h2>Tout est fait pour toi</h2>
+                <p className="sec-lead">Ce que Word te fait faire à la main, mondocpro le fait d’un coup, pour aller plus vite.</p>
+              </div>
+              <dl className="feats">
+                <div><dt><IHeading size={20} />Titres reconnus</dt><dd>CHAPITRE 1, I., A., 1.1… détectés tout seuls.</dd></div>
+                <div><dt><IList size={20} />Sommaire automatique</dt><dd>Avec les bons numéros de page.</dd></div>
+                <div><dt><ITable size={20} />Tableaux propres</dt><dd>Collés depuis Word, Excel ou un PDF, avec légendes.</dd></div>
+                <div><dt><IHash size={20} />Pagination exacte</dt><dd>L’aperçu montre les vraies pages.</dd></div>
+                <div><dt><ICover size={20} />Page de garde</dt><dd>10 modèles élégants, avec ton logo, à voir en grand.</dd></div>
+                <div><dt><ICloud size={20} />Enregistré dans ton compte</dt><dd>Chaque document est sauvegardé tout seul, et tu le retrouves sur tous tes appareils.</dd></div>
+              </dl>
+            </div>
+          </section>
+
+          {!install.installed && <section className="install" id="installer">
+            <div className="wrap">
+              <div className="install-box">
+                <div>
+                  <h2>Installe mondocpro</h2>
+                  <p className="sec-lead">Un accès direct depuis ton écran d’accueil, même sans connexion.</p>
+                  {install.canPrompt && <button className="btn light lg" onClick={() => install.prompt()}><IDownload size={20} />Installer l’application</button>}
+                </div>
+                <div className="how-to">
+                  <div><h3><IPhone size={20} />Android · Chrome</h3><p>Touche <b>⋮</b> puis <b>« Installer l’application »</b>.</p></div>
+                  <div><h3><IShare size={20} />iPhone · Safari</h3><p>Touche <b>Partager</b> puis <b>« Sur l’écran d’accueil »</b>.</p></div>
+                </div>
+              </div>
+            </div>
+          </section>}
+
+          <section className="faq" id="faq">
+            <div className="wrap split">
+              <div className="split-head"><h2>Questions</h2></div>
+              <div>
+                <details className="qa"><summary>Est-ce vraiment gratuit ?</summary><p>Oui, mondocpro est gratuit pour le moment. Un tarif sera proposé plus tard, après la période de lancement.</p></details>
+                <details className="qa"><summary>Pourquoi me connecter ?</summary><p>Pour que chaque document soit enregistré directement dans ton compte : tu ne perds rien et tu le retrouves sur tous tes appareils. La connexion se fait avec Google ou un lien reçu par e-mail, sans mot de passe.</p></details>
+                <details className="qa"><summary>Mon texte reste-t-il privé ?</summary><p>Oui. Tes documents sont gardés dans ton compte, visibles par toi seul.</p></details>
+                <details className="qa"><summary>Puis-je modifier le fichier ?</summary><p>Oui. Le Word est un vrai fichier, avec de vrais styles de titres et un sommaire déjà rempli.</p></details>
+                <details className="qa"><summary>Comment sont reconnus les tableaux ?</summary><p>Copie-les depuis Word, Excel ou un PDF, puis colle-les dans ton texte. Ajoute « Tableau : titre » juste avant pour la légende.</p></details>
+                <details className="qa"><summary>Où sont mes documents ?</summary><p>Enregistrés automatiquement dans ton compte, dans « Mon compte ». Quand tu te déconnectes, ils sont retirés de cet appareil : pratique sur un ordinateur partagé.</p></details>
+              </div>
+            </div>
+          </section>
+
+          <footer className="foot">
+            <div className="wrap foot-in">
+              <div>
+                <a className="brand" href="#top"><Logo size={30} /><span>mondoc<i>pro</i></span></a>
+                <p style={{ marginTop: 10 }}>Fait en Côte d’Ivoire, pour les étudiants.</p>
+              </div>
+              <div className="foot-row">
+                <span>Service client : <a href={TEL_URL}>{PHONE_SHOW}</a></span>
+                <a href={WA_URL} target="_blank" rel="noopener noreferrer">WhatsApp</a>
+                <button className="link" onClick={() => setDialog('about')}>À propos</button>
+              </div>
+            </div>
+          </footer>
+        </>
       )}
 
+      {view === 'app' && (
       <main className="atelier" id="atelier" ref={atelierRef}>
         <div className="wrap">
-          {!install.installed && <div className="section-head"><h2>Ton document</h2></div>}
           <div className="bench">
             <div className="bench-bar">
               <button className="chipbtn" onClick={() => { setDocs(listDocs()); setDialog('library') }}><IFolder size={18} />Mes documents{docs.length > 0 && <em>{docs.length}</em>}</button>
@@ -404,11 +548,12 @@ export default function App() {
                     <>
                       <div className="paste-row">
                         <button className="btn sm" onClick={paste}><IPaste size={18} />Coller mon texte</button>
-                        {!empty && <button className="link" onClick={() => { setText(''); setCover({ title: '' }); taRef.current?.focus() }}>Tout effacer</button>}
+                        <button className="btn ghost sm" onClick={() => setFocus('ecrire')}><IExpand size={18} />Agrandir</button>
                       </div>
-                      <textarea ref={taRef} value={text} onChange={e => onType(e.target.value)} spellCheck={false} aria-label="Ton texte" placeholder="Colle ton texte ici…" />
+                      <textarea ref={taRef} value={text} onChange={e => onType(e.target.value)} spellCheck={false} aria-label="Ton texte" placeholder="Écris ici, ou colle ton texte…" />
+                      {!empty && <div className="tools"><button className="link" onClick={() => { setText(''); setCover({ title: '' }); taRef.current?.focus() }}>Tout effacer</button></div>}
                       {empty
-                        ? <p className="hint">Copie ton texte depuis Word, un mail, un PDF ou tes notes, puis colle-le ici. Tout le reste est automatique.</p>
+                        ? <p className="hint">Écris directement, ou copie ton texte depuis Word, un mail, un PDF ou tes notes. Tout le reste est automatique. Touche « Agrandir » pour écrire sur une grande feuille.</p>
                         : <div className="meter" aria-live="polite"><span><b>{heads}</b> titre{heads > 1 ? 's' : ''}</span><span><b>{tables}</b> tableau{tables > 1 ? 'x' : ''}</span>{pages && <span><b>{pages}</b> page{pages > 1 ? 's' : ''}</span>}</div>}
                       <details className="tips">
                         <summary>Astuces de mise en page</summary>
@@ -511,11 +656,11 @@ export default function App() {
                     <div className="emptyview">
                       <div className="ghostpage" aria-hidden="true"><i /><i /><i /><i className="s" /></div>
                       <h3>Ton document apparaît ici</h3>
-                      <p>Colle ton texte : les pages, le sommaire et les tableaux s’affichent tels qu’ils seront dans Word.</p>
+                      <p>Écris ou colle ton texte : les pages, le sommaire et les tableaux s’affichent tels qu’ils seront dans Word.</p>
                       <button className="btn" onClick={paste}><IPaste size={18} />Coller mon texte</button>
                     </div>
                   )
-                  : <Suspense fallback={<p className="hint">Chargement de l’aperçu…</p>}><Preview layout={layout} /></Suspense>}
+                  : <Suspense fallback={<p className="hint">Chargement de l’aperçu…</p>}><Preview layout={layout} onExpand={() => setFocus('apercu')} /></Suspense>}
               </div>
             </div>
           </div>
@@ -526,100 +671,41 @@ export default function App() {
           <button className="btn" onClick={() => { setError(''); setDialog('download') }} disabled={empty || !blocks.length} tabIndex={inView && !empty ? 0 : -1}><IDownload size={18} />Télécharger</button>
         </div>
       </main>
-
-      {!install.installed && (
-        <>
-          <section className="how" id="methode">
-            <div className="wrap">
-              <h2>Trois gestes, c’est fini</h2>
-              <p className="sec-lead">Pas de style à régler, pas de sommaire à mettre à jour à la main.</p>
-              <ol className="steps">
-                <li><span className="n">1</span><h3>Colle ton texte</h3><p>Depuis Word, un mail, un PDF ou tes notes.</p></li>
-                <li><span className="n">2</span><h3>Choisis un modèle</h3><p>Complet, Standard ou Simple. Un seul geste, tout se règle.</p></li>
-                <li><span className="n">3</span><h3>Télécharge</h3><p>Word modifiable ou PDF prêt à envoyer.</p></li>
-              </ol>
-            </div>
-          </section>
-
-          <section className="feat" id="fonctions">
-            <div className="wrap split">
-              <div className="split-head">
-                <h2>Tout est fait pour toi</h2>
-                <p className="sec-lead">Ce que Word te fait faire à la main, mondocpro le fait d’un coup.</p>
-              </div>
-              <dl className="feats">
-                <div><dt><IHeading size={20} />Titres reconnus</dt><dd>CHAPITRE 1, I., A., 1.1… détectés tout seuls.</dd></div>
-                <div><dt><IList size={20} />Sommaire automatique</dt><dd>Avec les bons numéros de page.</dd></div>
-                <div><dt><ITable size={20} />Tableaux propres</dt><dd>Collés depuis Word, Excel ou un PDF, avec légendes.</dd></div>
-                <div><dt><IHash size={20} />Pagination exacte</dt><dd>L’aperçu montre les vraies pages.</dd></div>
-                <div><dt><ICover size={20} />Page de garde</dt><dd>10 modèles élégants, avec ton logo.</dd></div>
-                <div><dt><ICloud size={20} />Tes documents partout</dt><dd>Connecte-toi (gratuit) pour les retrouver sur tous tes appareils.</dd></div>
-              </dl>
-            </div>
-          </section>
-
-          <section className="install" id="installer">
-            <div className="wrap">
-              <div className="install-box">
-                <div>
-                  <h2>Installe mondocpro</h2>
-                  <p className="sec-lead">Un accès direct depuis ton écran d’accueil, même sans connexion.</p>
-                  {install.canPrompt && <button className="btn light lg" onClick={() => install.prompt()}><IDownload size={20} />Installer l’application</button>}
-                </div>
-                <div className="how-to">
-                  <div><h3><IPhone size={20} />Android · Chrome</h3><p>Touche <b>⋮</b> puis <b>« Installer l’application »</b>.</p></div>
-                  <div><h3><IShare size={20} />iPhone · Safari</h3><p>Touche <b>Partager</b> puis <b>« Sur l’écran d’accueil »</b>.</p></div>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <section className="faq" id="faq">
-            <div className="wrap split">
-              <div className="split-head"><h2>Questions</h2></div>
-              <div>
-                <details className="qa"><summary>Est-ce vraiment gratuit ?</summary><p>Oui, mondocpro est gratuit pour le moment. Un tarif sera proposé plus tard, après la période de lancement.</p></details>
-                <details className="qa"><summary>Mon texte reste-t-il privé ?</summary><p>Oui. Sans compte, ton texte reste sur ton appareil. Si tu te connectes, tes documents sont gardés dans ton compte, visibles par toi seul.</p></details>
-                <details className="qa"><summary>Puis-je modifier le fichier ?</summary><p>Oui. Le Word est un vrai fichier, avec de vrais styles de titres et un sommaire déjà rempli.</p></details>
-                <details className="qa"><summary>Comment sont reconnus les tableaux ?</summary><p>Copie-les depuis Word, Excel ou un PDF, puis colle-les dans ton texte. Ajoute « Tableau : titre » juste avant pour la légende.</p></details>
-                <details className="qa"><summary>Où sont mes documents ?</summary><p>Enregistrés automatiquement sur ton appareil, dans « Mes documents ». Connecte-toi pour les retrouver sur tous tes appareils.</p></details>
-              </div>
-            </div>
-          </section>
-
-          <footer className="foot">
-            <div className="wrap foot-in">
-              <div>
-                <a className="brand" href="#top"><Logo size={30} /><span>mondoc<i>pro</i></span></a>
-                <p style={{ marginTop: 10 }}>Fait en Côte d’Ivoire, pour les étudiants.</p>
-              </div>
-              <div className="foot-row">
-                <span>Service client : <a href={TEL_URL}>{PHONE_SHOW}</a></span>
-                <a href={WA_URL} target="_blank" rel="noopener noreferrer">WhatsApp</a>
-                <button className="link" onClick={() => setDialog('about')}>À propos</button>
-              </div>
-            </div>
-          </footer>
-        </>
       )}
+
 
       {dialog === 'download' && <Suspense fallback={null}><DownloadDialog defaultName={docName === 'Sans titre' ? 'document' : docName} pages={pages} busy={busy} error={error} onPick={download} onClose={() => setDialog(null)} /></Suspense>}
       {dialog === 'library' && <Suspense fallback={null}><LibraryDialog docs={docs} currentId={docId} onOpen={load} onDelete={removeOne} onNew={newDoc} onClose={() => setDialog(null)} account={HAS_BACKEND ? (account ? { email: account.email } : null) : undefined} syncLabel={syncLabel} onLogin={openLogin} onLogout={logout} onAdmin={isAdmin ? () => setDialog('admin') : undefined} /></Suspense>}
       {dialog === 'admin' && acc && isAdmin && <Suspense fallback={null}><AdminDialog acc={acc} onClose={() => setDialog(null)} /></Suspense>}
       {dialog === 'about' && <Suspense fallback={null}><AboutDialog onClose={() => setDialog(null)} /></Suspense>}
       <ContactFab />
-      {dialog === 'login' && acc && <Suspense fallback={null}><LoginDialog acc={acc} onClose={() => setDialog(null)} /></Suspense>}
+      {dialog === 'login' && acc && <Suspense fallback={null}><LoginDialog acc={acc} onClose={() => { wantApp.current = false; setStarting(false); setDialog(null) }} /></Suspense>}
+      {focus && <Suspense fallback={null}><Focus text={text} onType={onType} s={s} layout={layout} start={focus} status={savedLabel} onPaste={paste} onClose={() => setFocus(null)} /></Suspense>}
       {toast && <div className="toast" role="status">{toast}</div>}
     </>
   )
 
+  /** Logo : réduit à 600 px max (un logo de plusieurs Mo remplirait l'espace de l'appareil et ne partirait pas dans le compte). */
   function onLogo(f?: File) {
     if (!f) return
+    if (f.size > 10_000_000) { setError('Logo trop lourd : choisis une image de moins de 10 Mo.'); return }
     const r = new FileReader()
     r.onload = () => {
       const url = String(r.result), img = new Image()
       if (!/^data:image\/(png|jpe?g)/.test(url)) { setError('Logo : utilise un fichier PNG ou JPG.'); return }
-      img.onload = () => setCover({ logo: { url, w: img.naturalWidth, h: img.naturalHeight } })
+      img.onerror = () => setError('Ce logo ne peut pas être lu. Essaie un autre fichier PNG ou JPG.')
+      img.onload = () => {
+        const k = Math.min(1, 600 / Math.max(img.naturalWidth, img.naturalHeight))
+        if (k === 1 && url.length < 300_000) { setCover({ logo: { url, w: img.naturalWidth, h: img.naturalHeight } }); return }
+        const w = Math.max(1, Math.round(img.naturalWidth * k)), h = Math.max(1, Math.round(img.naturalHeight * k))
+        const c = document.createElement('canvas'); c.width = w; c.height = h
+        const g = c.getContext('2d')
+        if (!g) { setCover({ logo: { url, w: img.naturalWidth, h: img.naturalHeight } }); return }
+        const png = /^data:image\/png/.test(url)
+        if (!png) { g.fillStyle = '#fff'; g.fillRect(0, 0, w, h) }
+        g.drawImage(img, 0, 0, w, h)
+        setCover({ logo: { url: c.toDataURL(png ? 'image/png' : 'image/jpeg', 0.9), w, h } })
+      }
       img.src = url
     }
     r.readAsDataURL(f)

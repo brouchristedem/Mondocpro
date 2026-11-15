@@ -40,3 +40,11 @@ export function coverHtml(c: Cover, W: number, H: number): string {
   }).join('')
   return `<div style="width:${W}pt;">${rows}</div>`
 }
+
+/** Zone de texte A4 (marges 2,5 cm), en pt, et la feuille complète d'une page de garde (vignettes, aperçu en grand). */
+export const COVER_W = 453.55
+export const COVER_H = 700.2
+export const SHEET_PX = { w: 793.7, h: 1122.5 }
+export function coverSheetHtml(c: Cover): string {
+  return `<div class="sheet" style="width:595.3pt;height:841.9pt;box-shadow:none;"><div class="bd" style="left:70.85pt;top:70.85pt;width:${COVER_W}pt;height:${COVER_H}pt;">${coverHtml({ ...c, enabled: true }, COVER_W, COVER_H)}</div></div>`
+}

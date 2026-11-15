@@ -1,5 +1,5 @@
 /* mondocpro : fonctionne aussi sans connexion une fois le site chargé. */
-const VERSION = 'mondocpro-v3'
+const VERSION = 'mondocpro-v4'
 const SHELL = ['/', '/manifest.webmanifest', '/favicon.svg', '/icon-192.png', '/icon-512.png']
 
 self.addEventListener('install', e => {
