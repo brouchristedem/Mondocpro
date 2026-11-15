@@ -8,6 +8,7 @@ import { deletedMarker, planSync, toCloud } from './sync'
 import { useInstall } from './install'
 import ContactFab from './ContactFab'
 import Logo from './Logo'
+import CoverPicker from './CoverPicker'
 import { IArrow, ICheck, ICover, IDownload, IEdit, IEye, IFolder, IHash, IList, IPaste, IPhone, IPlus, IShare, ISliders, ITable, ICloud, IHeading } from './icons'
 import { PHONE_SHOW, TEL_URL, WA_URL } from './contact'
 
@@ -426,6 +427,10 @@ export default function App() {
                       <Check label="Ajouter une page de garde" checked={sEff.cover.enabled} onChange={v => setCover({ enabled: v })} />
                       {sEff.cover.enabled && (
                         <>
+                          <fieldset className="group">
+                            <legend>Modèle de page de garde</legend>
+                            <CoverPicker cover={sEff.cover} onPick={id => setCover({ template: id })} />
+                          </fieldset>
                           <Field label="Établissement ou société"><input value={sEff.cover.school} onChange={e => setCover({ school: e.target.value })} placeholder="Nom de l’établissement" /></Field>
                           <Field label="Type de document"><input value={sEff.cover.kind} onChange={e => setCover({ kind: e.target.value })} placeholder="RAPPORT, DOSSIER, MÉMOIRE…" /></Field>
                           <Field label="Titre"><textarea rows={3} value={sEff.cover.title} onChange={e => setCover({ title: e.target.value })} placeholder="Le titre de ton document" /></Field>
@@ -547,7 +552,7 @@ export default function App() {
                 <div><dt><IList size={20} />Sommaire automatique</dt><dd>Avec les bons numéros de page.</dd></div>
                 <div><dt><ITable size={20} />Tableaux propres</dt><dd>Collés depuis Word, Excel ou un PDF, avec légendes.</dd></div>
                 <div><dt><IHash size={20} />Pagination exacte</dt><dd>L’aperçu montre les vraies pages.</dd></div>
-                <div><dt><ICover size={20} />Page de garde</dt><dd>Facultative, avec ton logo.</dd></div>
+                <div><dt><ICover size={20} />Page de garde</dt><dd>10 modèles élégants, avec ton logo.</dd></div>
                 <div><dt><ICloud size={20} />Tes documents partout</dt><dd>Connecte-toi (gratuit) pour les retrouver sur tous tes appareils.</dd></div>
               </dl>
             </div>

@@ -1,5 +1,5 @@
 import {
-  AlignmentType, Bookmark, BorderStyle, Document, Footer, Header, ImageRun, LeaderType, LevelFormat, LineRuleType, NumberFormat, Packer,
+  AlignmentType, Bookmark, BorderStyle, Document, Footer, Header, LeaderType, LevelFormat, LineRuleType, NumberFormat, Packer,
   Paragraph, PageNumber, PageOrientation, SectionType, SimpleField, Table, TableCell, TableLayoutType,
   ShadingType, TableRow, TabStopType, TextRun, VerticalAlign, WidthType,
   type ISectionOptions,
@@ -7,6 +7,7 @@ import {
 import JSZip from 'jszip'
 import { CELL_BR, type Block, type Settings } from './types'
 import { A4, plan, widthOf, type Item } from './plan'
+import { coverDocx } from './coverDocx'
 
 type Child = Paragraph | Table
 /** Numéros de page déjà calculés (voir layout.ts) : écrits dans le sommaire pour qu'il soit rempli dès l'ouverture. */
@@ -26,15 +27,6 @@ function runs(text: string, base: { size?: number; bold?: boolean } = {}): TextR
     if (li > 0) return [new TextRun({ ...base, text: '', break: 1 }), ...out]
     return out
   })
-}
-
-function dataToBytes(url: string): { data: Uint8Array; type: 'png' | 'jpg' } {
-  const m = url.match(/^data:image\/(png|jpe?g);base64,(.*)$/)
-  if (!m) throw new Error('Logo non supporté (PNG ou JPG)')
-  const bin = atob(m[2])
-  const data = new Uint8Array(bin.length)
-  for (let i = 0; i < bin.length; i++) data[i] = bin.charCodeAt(i)
-  return { data, type: m[1] === 'png' ? 'png' : 'jpg' }
 }
 
 export function buildDocument(blocks: Block[], s: Settings, nums?: PageNumbers): Document {
@@ -110,30 +102,9 @@ export function buildDocument(blocks: Block[], s: Settings, nums?: PageNumbers):
   }
   const segs = P.segs.map(g => ({ landscape: g.landscape, children: g.items.map(toChild) }))
 
-  // ---- page de garde ----
+  // ---- page de garde : gabarit choisi (voir coverTemplates.ts), même dessin que l'aperçu ----
   const c = s.cover
-  const cover: Paragraph[] = []
-  if (c.enabled) {
-    const centered = (text: string, size: number, o: { bold?: boolean; before?: number; after?: number } = {}) =>
-      new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: o.before ?? 0, after: o.after ?? 120, line: 276, lineRule: LineRuleType.AUTO }, children: [new TextRun({ text, size: half(size), bold: o.bold })] })
-    cover.push(centered(c.school.toUpperCase(), s.size + 2, { bold: true, before: 1200, after: 240 }))
-    if (c.logo) {
-      const { data, type } = dataToBytes(c.logo.url)
-      const h = 90, w = Math.round((c.logo.w / c.logo.h) * h)
-      cover.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 480 }, children: [new ImageRun({ type, data, transformation: { width: w, height: h }, altText: { title: 'Logo', description: 'Logo', name: 'logo' } })] }))
-    }
-    if (c.kind.trim()) cover.push(centered(c.kind.toUpperCase(), s.size + 2, { before: 480, after: 240 }))
-    if (c.title.trim()) cover.push(new Paragraph({
-      alignment: AlignmentType.CENTER, spacing: { before: 120, after: 600, line: 300, lineRule: LineRuleType.AUTO },
-      border: { top: { style: BorderStyle.SINGLE, size: 8, color: '000000', space: 12 }, bottom: { style: BorderStyle.SINGLE, size: 8, color: '000000', space: 12 } },
-      children: [new TextRun({ text: c.title, size: half(s.size + 8), bold: true })],
-    }))
-    if (c.author.trim()) cover.push(centered(`Présenté par : ${c.author}`, s.size, { before: 240 }))
-    if (c.group?.trim()) cover.push(centered(`Filière : ${c.group}`, s.size))
-    if (c.supervisor.trim()) cover.push(centered(`Encadreur : ${c.supervisor}`, s.size))
-    for (const x of c.extras ?? []) if (x.trim()) cover.push(centered(x, s.size))
-    if (c.year.trim()) cover.push(centered(`Année académique : ${c.year}`, s.size, { before: 480 }))
-  }
+  const cover: Child[] = c.enabled ? [coverDocx(c, width(false) / 20, (A4.h - margins.top - margins.bottom) / 20)] : []
 
   // ---- pages préliminaires : sommaire (rempli au moment de l'envoi, voir injectToc) + liste des tableaux ----
   const frontTitle = (t: string) => new Paragraph({ style: 'FrontTitle', children: [new TextRun(t)] })

@@ -23,6 +23,8 @@ export interface Cover {
   supervisor: string
   year: string
   logo?: Logo
+  /** Gabarit de la page de garde (voir coverTemplates.ts) ; absent = « académique ». */
+  template?: string
 }
 
 export interface Settings {
@@ -68,6 +70,7 @@ export const DEFAULTS: Settings = {
     author: '',
     supervisor: '',
     year: '',
+    template: 'academique',
   },
 }
 

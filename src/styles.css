@@ -357,3 +357,13 @@ code { padding: 1px 6px; border-radius: 6px; background: var(--desk); font-size:
   .arrow path { stroke-dashoffset: 0; }
 }
 @media (max-width: 559px) { .nav.crowded .nav-btn.inst { display: none; } }
+
+/* ---- galerie des modèles de page de garde ---- */
+.tpl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); gap: 12px; justify-items: center; }
+.tpl { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 100%; max-width: 172px; padding: 8px 8px 10px; border: 2px solid var(--line, #E3E7F2); border-radius: 12px; background: #fff; color: inherit; font: inherit; text-align: center; cursor: pointer; }
+.tpl.on { border-color: var(--cobalt); background: var(--cobalt-t); }
+.tpl:focus-visible { outline: 3px solid var(--cobalt); outline-offset: 2px; }
+.tpl b { font-size: 14px; margin-top: 6px; }
+.tpl small { font-size: 12px; color: #5b6478; line-height: 1.25; }
+.tpl-sheet { display: block; position: relative; width: 148px; height: 209px; overflow: hidden; box-shadow: 0 1px 3px rgba(11, 20, 51, .25); background: #fff; }
+.tpl-sheet .sheet { position: absolute; left: 0; top: 0; display: block; transform: scale(.1877); transform-origin: 0 0; box-shadow: none; }

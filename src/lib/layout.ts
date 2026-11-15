@@ -1,6 +1,8 @@
 import { CELL_BR, type Block, type Settings } from './types'
 import { A4, plan, type Item, type Plan } from './plan'
 import { fontInfo, loadFont } from './fonts'
+import { coverHtml } from './coverHtml'
+import { coverFonts, coverTable } from './coverTemplates'
 
 /**
  * Moteur de pagination : calcule, avec les vraies polices, où tombent les pages d'un document Word.
@@ -57,6 +59,7 @@ interface Acc { landscape: boolean; parts: Part[]; used: number; soft: boolean }
 
 export async function layoutDocument(blocks: Block[], s: Settings): Promise<Layout> {
   await loadFont(s.font)
+  if (s.cover.enabled) for (const f of coverFonts(coverTable(s.cover, 400, 700))) await loadFont(f)
   const P = plan(blocks, s)
   const F = fontInfo(s.font)
   const natural = (size: number) => F.lh * size
@@ -333,25 +336,9 @@ export async function layoutDocument(blocks: Block[], s: Settings): Promise<Layo
       `<div class="ft" style="left:${pt(m.left)}pt;right:${pt(m.right)}pt;bottom:35.4pt;">${footerHtml(label, land)}</div></div>`
   }
 
-  /* ----- page de garde ----- */
+  /* ----- page de garde : gabarit choisi, même dessin que le Word ----- */
   const coverPage = (): Page => {
-    const c = s.cover
-    const ctr = (text: string, size: number, o: { bold?: boolean; before?: number; after?: number } = {}) =>
-      `<div style="${base(size, natural(size) * 1.15, `text-align:center;font-weight:${o.bold ? 700 : 400};padding-top:${o.before ?? 0}pt;padding-bottom:${(o.after ?? 120) / 20}pt;`)}">${esc(text)}</div>`
-    const parts: string[] = []
-    parts.push(ctr(c.school.toUpperCase(), s.size + 2, { bold: true, before: 60, after: 240 }))
-    if (c.logo) {
-      const h = 90 / PX
-      parts.push(`<div style="text-align:center;padding-bottom:24pt;"><img alt="" src="${c.logo.url}" style="height:${h}pt;width:${(c.logo.w / c.logo.h) * h}pt;"></div>`)
-    }
-    if (c.kind.trim()) parts.push(ctr(c.kind.toUpperCase(), s.size + 2, { bold: true, before: 24, after: 240 }))
-    if (c.title.trim()) parts.push(`<div style="${base(s.size + 8, natural(s.size + 8) * 1.25, 'text-align:center;font-weight:700;border-top:1pt solid #000;border-bottom:1pt solid #000;padding:12pt 0;margin:6pt 0 30pt;')}">${esc(c.title)}</div>`)
-    if (c.author.trim()) parts.push(ctr(`Présenté par : ${c.author}`, s.size, { before: 12 }))
-    if (c.group?.trim()) parts.push(ctr(`Filière : ${c.group}`, s.size))
-    if (c.supervisor.trim()) parts.push(ctr(`Encadreur : ${c.supervisor}`, s.size))
-    for (const x of c.extras ?? []) if (x.trim()) parts.push(ctr(x, s.size))
-    if (c.year.trim()) parts.push(ctr(`Année académique : ${c.year}`, s.size, { before: 24 }))
-    const html = `<div class="sheet" style="width:${pt(A4.w)}pt;height:${pt(A4.h)}pt;"><div class="bd" style="left:${pt(m.left)}pt;right:${pt(m.right)}pt;top:${pt(m.top)}pt;height:${bodyH(false)}pt;">${parts.join('')}</div></div>`
+    const html = `<div class="sheet" style="width:${pt(A4.w)}pt;height:${pt(A4.h)}pt;"><div class="bd" style="left:${pt(m.left)}pt;right:${pt(m.right)}pt;top:${pt(m.top)}pt;height:${bodyH(false)}pt;">${coverHtml(s.cover, textW(false), bodyH(false))}</div></div>`
     return { kind: 'cover', landscape: false, label: '', html }
   }
 
