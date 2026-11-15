@@ -149,4 +149,36 @@ assert.deepEqual(H('1. Cadre\nTexte.\nIntroduction et diagnostic du cas\nTexte.\
   ['1:1. Cadre', '1:Introduction et diagnostic du cas', '1:7. Trois recommandations', '2:Recommandation 1 : formaliser les demandes', '2:Recommandation 2 : planifier', '1:Conclusion générale', '1:Source utilisée'])
 // une phrase qui commence comme un titre mais finit par un point reste un paragraphe
 assert.deepEqual(H('Recommandation 1 : il faut absolument former le personnel dès maintenant avant la fin.\nTexte.'), [])
-console.log('Word : organigramme, titre du document, titres : OK')
+// étude de cas : formules, puces collées, « : » en fin de titre numéroté, étiquettes en gras, nombres
+const NB = ' '
+const etude = parse([
+  '1) Identification des modes', '', 'Les modes utilisés sont :', '', 'Maritime', '', 'Routier', '',
+  '3) Calcul du coût', '', 'CT= TM+FPD+TR+AS', '', 'CT= 12.000.000+2.000.000+1.500.000+500.000', '', 'CT= 16.000.000 FCFA', '',
+  '4) Durée', '', 'FPD:', '', 'NB:Les données sont en jours', '', 'DTA= 30 JOURS', '',
+  '5) Les acteurs qui interviennent et leur rôle sont :', '', 'Douane ivoirienne : contrôle la marchandise', ',perçoit les droits et taxes.', '',
+  '6) Les avantages', '', '•Un seul contrat : couvre tout le trajet.', '', '•Responsabilité unique de bout en bout : un seul interlocuteur.', '',
+  '7) Conclusion du cas', '', 'Éviter les intervenants multiples .',
+].join('\n')) as (Any & { level?: number })[]
+// tous les « N) » au même niveau, le 5) (qui finit par « : ») est bien un titre ; aucune formule n'est un titre
+assert.deepEqual(etude.filter(b => b.t === 'h').map(b => `${b.level}:${b.text}`),
+  ['1:1) Identification des modes', '1:3) Calcul du coût', '1:4) Durée', '1:5) Les acteurs qui interviennent et leur rôle sont :', '1:6) Les avantages', '1:7) Conclusion du cas'])
+// formules : paragraphes en gras, espacées, milliers en espace insécable (y compris « 500.000 » à côté de grands nombres)
+assert.ok(etude.some(b => b.t === 'p' && b.text === '**CT = TM + FPD + TR + AS**'))
+assert.ok(etude.some(b => b.t === 'p' && b.text === `**CT = 12${NB}000${NB}000 + 2${NB}000${NB}000 + 1${NB}500${NB}000 + 500${NB}000**`))
+assert.ok(etude.some(b => b.t === 'p' && b.text === `**CT = 16${NB}000${NB}000 FCFA**`))
+assert.ok(etude.some(b => b.t === 'p' && b.text === '**DTA = 30 JOURS**'))
+// sigle seul ou collé au texte : étiquette en gras
+assert.ok(etude.some(b => b.t === 'p' && b.text === '**FPD :**'))
+assert.ok(etude.some(b => b.t === 'p' && b.text === '**NB :** Les données sont en jours'))
+// énumération sous une ligne qui finit par « : » → liste ; virgule en début de ligne recollée
+assert.deepEqual(etude.filter(b => b.t === 'li').slice(0, 2).map(b => b.text), ['Maritime', 'Routier'])
+assert.ok(etude.some(b => b.t === 'p' && b.text === '**Douane ivoirienne :** contrôle la marchandise, perçoit les droits et taxes.'))
+// puces collées (« •texte ») : éléments de liste, étiquette (même longue) en gras
+assert.deepEqual(etude.filter(b => b.t === 'li').slice(2).map(b => b.text), ['**Un seul contrat :** couvre tout le trajet.', '**Responsabilité unique de bout en bout :** un seul interlocuteur.'])
+// espace avant le point supprimé
+assert.ok(etude.some(b => b.t === 'p' && b.text === 'Éviter les intervenants multiples.'))
+// un montant seul devant une monnaie est aussi mis en forme ; un décimal ordinaire reste intact
+assert.deepEqual((parse('Le budget est de 500.000 FCFA.\n\nLe taux est de 2.5 %.') as Any[]).map(b => b.text), [`Le budget est de 500${NB}000 FCFA.`, 'Le taux est de 2.5 %.'])
+// deux courtes lignes sous une phrase qui ne finit pas par « : » ne deviennent pas une liste
+assert.deepEqual(kinds('Voici le texte.\n\nMaritime\n\nRoutier'), ['p', 'p', 'p'])
+console.log('Word : organigramme, titre du document, titres, étude de cas : OK')

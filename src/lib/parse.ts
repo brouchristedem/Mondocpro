@@ -17,6 +17,28 @@ const listNo = (l: string): number | null => { const m = l.match(/^(\d{1,2})[.)]
 const UPPER_START = /^[A-ZÀ-ÝŒ«“"‘(*\d]/
 const ROMAN_VAL: Record<string, number> = { I: 1, II: 2, III: 3, IV: 4, V: 5, VI: 6, VII: 7, VIII: 8, IX: 9, X: 10, XI: 11, XII: 12, XIII: 13, XIV: 14, XV: 15, XVI: 16, XVII: 17, XVIII: 18, XIX: 19, XX: 20 }
 const words = (t: string) => t.trim().split(/\s+/).length
+/** Puce « • texte » (espace facultatif après « • ») ou « - texte » / « * texte » / « – texte » (espace obligatoire). */
+const LI_START = /^(?:[-*–]\s+|[•·▪●■◦○▫]\s*)(?=\S)/
+/** Formule « CT= TM+FPD+TR+AS », « DTA= 30 JOURS » : un seul mot (sigle) avant le « = ». Jamais un titre. */
+const FORMULA = /^[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ0-9']{0,9}\s*=\s*\S/
+const isFormula = (l: string) => l.length <= 100 && FORMULA.test(l) && !/[!?]$/.test(l)
+const fmtFormula = (l: string) => l.replace(/\s*=\s*/g, ' = ').replace(/\s*\+\s*/g, ' + ').replace(/\s+/g, ' ').trim()
+/** Ligne courte sans ponctuation finale : élément possible d'une énumération (« Maritime », « Routier »). */
+const shortItem = (l: string | undefined) => {
+  const t = (l ?? '').trim()
+  return t.length > 0 && t.length <= 40 && words(t) <= 5 && !/[.!?;:,]$/.test(t) && !/[:=+]/.test(t) && !t.includes('\t') && !t.includes('|') && !/^[-•*–#\d]/.test(t) && !LI_START.test(t)
+}
+/** Nettoyage typographique du texte courant : pas d'espace avant « . » ou « , », milliers « 12.000.000 » → « 12 000 000 » (espace insécable). */
+const THOUSANDS2 = /\b\d{1,3}(?:\.\d{3}){2,}\b/
+const tidy = (t: string) => {
+  let s = t.replace(/\s+([.,])(?=\s|$)/g, '$1')
+  // « 12.000.000 » est sans ambiguïté ; « 500.000 » seul l'est dans la même ligne qu'un grand nombre, ou devant une monnaie
+  const single = THOUSANDS2.test(s) ? /\b\d{1,3}(?:\.\d{3})+\b/g : /\b\d{1,3}(?:\.\d{3})+(?=\s*(?:FCFA|F CFA|XOF|XAF|€|\$))/g
+  s = s.replace(single, m => m.replace(/\./g, ' '))
+  return s.replace(/\b\d{1,3}(?:\.\d{3}){2,}\b/g, m => m.replace(/\./g, ' '))
+}
+/** « FPD: », « NB:Les données… » : sigle en majuscules suivi de « : » (avec ou sans texte, avec ou sans espace). */
+const ACRONYM = /^([A-Z]{2,6})\s*:\s*(\S.*)?$/
 
 type Kind = 'part' | 'chap' | 'roman' | 'letter' | 'dec' | 'special' | 'caps' | 'plain' | 'item'
 export interface Head { kind: Kind; depth: number; rank: number; text: string }
@@ -57,7 +79,12 @@ export function headOf(raw: string, ctx?: Ctx, iso = false, loose = true, nextLo
   if (!line || line.length > 120 || HR.test(line)) return null
   const core = line.replace(/[\s:.\-–—]+$/, '')
   if (SPECIAL.test(core) || INTRO_X.test(core)) return { kind: 'special', depth: 1, rank: 0, text: line.replace(/[\s:]+$/, '') }
-  if (/[;,:]$/.test(line)) return null
+  if (/[;,:]$/.test(line)) {
+    // « 5) Les acteurs qui interviennent et leur rôle sont : » : une question numérotée peut finir par « : » si ses voisines « 4) » / « 6) » existent
+    const nm = line.match(/^(\d{1,2})[.)]\s/)
+    const sib = !!(nm && ctx && line.endsWith(':') && (ctx.delim.has(Number(nm[1]) - 1) || ctx.delim.has(Number(nm[1]) + 1)))
+    if (!(sib && words(line) <= 16)) return null
+  }
   const period = /[.…]$/.test(line)
   if (period) {
     // « 2. Citez les étapes… humanitaire. » : une question numérotée qui finit par un point reste un titre si ses voisines « 1. » / « 3. » existent
@@ -95,6 +122,7 @@ export function headOf(raw: string, ctx?: Ctx, iso = false, loose = true, nextLo
   }
 
   if (!loose) return null
+  if (/[=+]/.test(line)) return null // une formule (« CT = TM + FPD ») n'est jamais un titre
   const letters = line.replace(/[^A-Za-zÀ-ÿ]/g, '')
   if (letters.length >= 4 && line.length <= 80 && letters === letters.toUpperCase() && !period) return { kind: 'caps', depth: 1, rank: RANK.caps, text: line }
   // titre sans numérotation : ligne courte, seule entre deux lignes vides, suivie d'un vrai texte (ou en gras)
@@ -315,7 +343,7 @@ export function joinCellLines(lines: string[]): string[] {
 const capsLine = (l: string) => {
   const t = l.trim()
   const letters = t.replace(/[^A-Za-zÀ-ÿ]/g, '')
-  return t.length >= 4 && t.length <= 90 && letters.length >= 4 && letters === letters.toUpperCase() && !/[.:;!?,]$/.test(t) && !t.includes('\t') && !t.includes('|') && !/^#{1,4}\s/.test(t) && !/^[-•*–]\s/.test(t)
+  return t.length >= 4 && t.length <= 90 && letters.length >= 4 && letters === letters.toUpperCase() && !/[.:;!?,]$/.test(t) && !/[=+]/.test(t) && !t.includes('\t') && !t.includes('|') && !/^#{1,4}\s/.test(t) && !/^[-•*–]\s/.test(t)
 }
 const plainCaps = (l: string) => capsLine(l) && headOf(l, undefined, false, false) === null
 
@@ -367,8 +395,23 @@ export function markTitleRows(lines: string[]): string[] {
   return out
 }
 
+/** Une ligne qui commence par « , » ou « ; » (retour à la ligne avant la virgule) se recolle à la ligne précédente. */
+export function joinStray(lines: string[]): string[] {
+  const out: string[] = []
+  for (const l of lines) {
+    const t = l.trim()
+    let k = out.length - 1
+    while (k >= 0 && !out[k].trim()) k--
+    if (/^[,;]\s*\S/.test(t) && k >= 0 && !isRowLine(out[k])) {
+      out.length = k + 1
+      out[k] = out[k].replace(/\s+$/, '') + t.replace(/^([,;])\s*/, '$1 ')
+    } else out.push(l)
+  }
+  return out
+}
+
 export function parse(src: string): Block[] {
-  let lines = unflattenTables(alignColumns(joinCellLines(stripToc(src.replace(/\r/g, '').split('\n').map(l => l.replace(/\s+$/, ''))))))
+  let lines = unflattenTables(alignColumns(joinCellLines(joinStray(stripToc(src.replace(/\r/g, '').split('\n').map(l => l.replace(/\s+$/, '')))))))
   const out: Block[] = []
   const lead = leadingTitle(lines)
   if (lead) { for (const x of lead.items) out.push({ t: 'title', text: x.text, sub: x.sub }); lines = lines.slice(lead.end) }
@@ -396,16 +439,23 @@ export function parse(src: string): Block[] {
     const j = nextIdx(i)
     if (j >= lines.length) return false
     const t = lines[j].trim()
-    return t.length >= 40 || (t.length >= 20 && /[.!?»)]$/.test(t)) || isRowLine(lines[j]) || CAPTION.test(t) || /^([-•*–])\s+\S/.test(t) || headOf(t, ctx, isoAt(j), true, false) !== null
+    return t.length >= 40 || (t.length >= 20 && /[.!?»)]$/.test(t)) || isRowLine(lines[j]) || CAPTION.test(t) || LI_START.test(t) || headOf(t, ctx, isoAt(j), true, false) !== null
   }
 
   let para: string[] = []
   const flush = () => { if (para.length) { out.push({ t: 'p', text: para.join(' ') }); para = [] } }
+  const prevLine = (i: number) => { let k = i - 1; while (k >= 0 && !lines[k].trim()) k--; return k >= 0 ? lines[k].trim() : '' }
+  let enumerating = false // lignes courtes sous une ligne qui finit par « : » (« Les modes utilisés sont : » / Maritime / Routier)
 
   for (let i = 0; i < lines.length; i++) {
     const raw = lines[i]
     const line = raw.trim()
     if (!line) { flush(); continue }
+    if (!enumerating && /:$/.test(prevLine(i)) && words(prevLine(i)) >= 3 && !ACRONYM.test(prevLine(i)) && shortItem(line) && shortItem(nextLine(i)) && headOf(line, ctx, false, false) === null) enumerating = true
+    if (enumerating) {
+      if (shortItem(line) && headOf(line, ctx, false, false) === null) { flush(); out.push({ t: 'li', text: line }); continue }
+      enumerating = false
+    }
     // filet Markdown (---, ***, ___, - - -) : séparateur, jamais du texte à imprimer
     if (HR.test(line) && !raw.includes('\t')) { flush(); continue }
 
@@ -468,7 +518,14 @@ export function parse(src: string): Block[] {
       out.push({ t: 'h', level: L, text: md[2] }); continue
     }
 
-    if (/^([-•*–])\s+\S/.test(line)) { flush(); out.push({ t: 'li', text: line.replace(/^([-•*–])\s+/, '') }); continue }
+    if (LI_START.test(line)) {
+      flush()
+      // « Responsabilité unique de bout en bout : … » : l'étiquette d'un élément de liste est en gras, même un peu plus longue que dans un paragraphe
+      const body = line.replace(LI_START, '')
+      const lm = body.match(/^([A-Za-zÀ-ÿ][^:.;!?«»"()\d*]{0,60}?)\s*:\s+(\S.*)$/)
+      out.push({ t: 'li', text: lm && words(lm[1]) <= 8 && !CAPTION.test(body) ? `**${lm[1].trim()} :** ${lm[2]}` : body })
+      continue
+    }
 
     const ns = line.match(NOSPACE_ITEM)
     if (ns) { flush(); out.push({ t: 'p', text: `${ns[1]}. ${line.slice(ns[0].length - 1)}` }); continue }
@@ -481,17 +538,21 @@ export function parse(src: string): Block[] {
     // question numérotée suivie de « Réponse : … » : énoncé en gras, pas un titre (sinon le sommaire se remplit de questions)
     if (n !== null && ANSWER.test(nextLine(i))) { flush(); out.push({ t: 'p', text: `**${line}**` }); continue }
 
+    // formule « CT= TM+FPD+TR+AS » : une ligne à part, en gras, espacée proprement
+    if (isFormula(line)) { flush(); out.push({ t: 'p', text: `**${fmtFormula(line)}**` }); continue }
+
     const prevShort = (() => { let k = i - 1; while (k >= 0 && !lines[k].trim()) k--; const t = k >= 0 ? lines[k].trim() : ''; return t.length > 0 && t.length < 40 && !/[.!?:;»)]$/.test(t) && !isRowLine(lines[k]) && headOf(t, ctx, isoAt(k), true, false) === null })()
     const h = headOf(line, ctx, isoAt(i), !explicit, longAfter(i) && !prevShort, hasBlank && (i === 0 || !lines[i - 1].trim()))
     if (h) { flush(); out.push({ t: 'h', level: levelFor(h), text: h.text }); continue }
 
-    const lb = labelOf(line)
-    const text = lb ? `**${lb[1].trim()} :** ${lb[2]}` : line
+    const ac = line.match(ACRONYM)
+    const lb = labelOf(line) ?? (ac ? ([ac[0], ac[1], ac[2] ?? ''] as unknown as RegExpMatchArray) : null)
+    const text = lb ? `**${lb[1].trim()} :**${lb[2] ? ' ' + lb[2] : ''}` : line
     if (soft) {
       if (lb && para.length && /[.!?»:;)]$/.test(para[para.length - 1])) flush()
       para.push(text); if (line.endsWith(';')) flush() // « ; » en fin de ligne = élément d'une énumération
     } else out.push({ t: 'p', text })
   }
   flush()
-  return out
+  return out.map(b => (b.t === 'p' || b.t === 'li' ? { ...b, text: tidy(b.text) } : b))
 }
