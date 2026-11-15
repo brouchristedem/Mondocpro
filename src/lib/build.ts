@@ -104,7 +104,7 @@ export function buildDocument(blocks: Block[], s: Settings, nums?: PageNumbers):
 
   // ---- page de garde : gabarit choisi (voir coverTemplates.ts), même dessin que l'aperçu ----
   const c = s.cover
-  const cover: Child[] = c.enabled ? [coverDocx(c, width(false) / 20, (A4.h - margins.top - margins.bottom) / 20)] : []
+  const cover: Child[] = c.enabled ? coverDocx(c, width(false) / 20, (A4.h - margins.top - margins.bottom) / 20) : []
 
   // ---- pages préliminaires : sommaire (rempli au moment de l'envoi, voir injectToc) + liste des tableaux ----
   const frontTitle = (t: string) => new Paragraph({ style: 'FrontTitle', children: [new TextRun(t)] })

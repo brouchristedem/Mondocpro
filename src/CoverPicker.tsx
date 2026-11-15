@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { Cover } from './lib/types'
-import { COVER_TEMPLATES, SAMPLE_COVER } from './lib/coverTemplates'
+import { COVER_TEMPLATES, SAMPLE_COVER, templateOf } from './lib/coverTemplates'
 import { coverSheetHtml, SHEET_PX } from './lib/coverHtml'
 import { useDialog } from './useDialog'
 import { IBack, IClose, INext, IZoom } from './icons'
@@ -58,7 +58,7 @@ export default function CoverPicker({ cover, onPick }: { cover: Cover; onPick: (
   const [big, setBig] = useState<number | null>(null)
   const data = useMemo(() => sampleOrReal(cover), [cover])
   const thumbs = useMemo(() => COVER_TEMPLATES.map(t => coverSheetHtml({ ...data, template: t.id })), [data])
-  const cur = cover.template ?? COVER_TEMPLATES[0].id
+  const cur = templateOf(cover.template).id
   return (
     <>
       <div className="tpl-grid" role="radiogroup" aria-label="Modèle de page de garde">

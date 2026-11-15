@@ -1,5 +1,5 @@
 import type { Cover } from './types'
-import { coverTable, type Edge, type Node, type CoverTable } from './coverTemplates'
+import { coverTable, PAGE, type Edge, type Node, type CoverTable } from './coverTemplates'
 import { fontInfo } from './fonts'
 
 const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
@@ -38,7 +38,10 @@ export function coverHtml(c: Cover, W: number, H: number): string {
     }).join('')
     return `<div style="display:flex;height:${r.h}pt;width:${W}pt;">${cells}</div>`
   }).join('')
-  return `<div style="width:${W}pt;">${rows}</div>`
+  // rectangles collés au bord de la feuille (derrière le texte) : positions de la FEUILLE, converties par rapport à la zone de texte
+  const ml = PAGE.w - PAGE.mr - W
+  const deco = (t.deco ?? []).map(d => `<div style="position:absolute;z-index:0;left:${d.x - ml}pt;top:${d.y - PAGE.mt}pt;width:${d.w}pt;height:${d.h}pt;background:#${d.fill};"></div>`).join('')
+  return `${deco}<div style="position:relative;z-index:1;width:${W}pt;">${rows}</div>`
 }
 
 /** Zone de texte A4 (marges 2,5 cm), en pt, et la feuille complète d'une page de garde (vignettes, aperçu en grand). */

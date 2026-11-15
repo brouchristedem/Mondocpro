@@ -1,9 +1,9 @@
 import {
-  AlignmentType, BorderStyle, HeightRule, ImageRun, LineRuleType, Paragraph, ShadingType, Table, TableCell, TableLayoutType, TableRow,
-  TextRun, VerticalAlign, WidthType,
+  AlignmentType, BorderStyle, HeightRule, HorizontalPositionRelativeFrom, ImageRun, LineRuleType, Paragraph, ShadingType, Table, TableCell,
+  TableLayoutType, TableRow, TextRun, TextWrappingType, VerticalAlign, VerticalPositionRelativeFrom, WidthType,
 } from 'docx'
 import type { Cover } from './types'
-import { coverTable, type Edge, type Node, type CoverTable } from './coverTemplates'
+import { coverTable, type Deco, type Edge, type Node, type CoverTable } from './coverTemplates'
 
 const tw = (pt: number) => Math.round(pt * 20)
 const none = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' } as const
@@ -51,8 +51,44 @@ function para(n: Node): Paragraph {
   }
 }
 
-/** La page de garde en objet Word : un seul tableau sans bordures dont chaque rangée a une hauteur exacte. */
-export function coverDocx(c: Cover, W: number, H: number): Table {
+/* ---- PNG d'une seule couleur (1 pixel, sans compression) : étiré à la taille voulue, il sert de rectangle plein collé au bord de la page ---- */
+const CRC = (() => { const t: number[] = []; for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t.push(c >>> 0) } return t })()
+const crc32 = (b: Uint8Array) => { let c = 0xffffffff; for (const x of b) c = CRC[(c ^ x) & 255] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0 }
+const be32 = (n: number) => [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255]
+function chunk(type: string, data: number[]): number[] {
+  const body = new Uint8Array([...type].map(ch => ch.charCodeAt(0)).concat(data))
+  return [...be32(data.length), ...body, ...be32(crc32(body))]
+}
+export function solidPng(hex: string): Uint8Array {
+  const r = parseInt(hex.slice(0, 2), 16), g = parseInt(hex.slice(2, 4), 16), b = parseInt(hex.slice(4, 6), 16)
+  const raw = [0, r, g, b] // filtre 0 + un pixel RVB
+  let s1 = 1, s2 = 0
+  for (const x of raw) { s1 = (s1 + x) % 65521; s2 = (s2 + s1) % 65521 }
+  const z = [0x78, 0x01, 0x01, raw.length, 0, 255 - raw.length, 255, ...raw, ...be32(((s2 << 16) | s1) >>> 0)]
+  return new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, ...chunk('IHDR', [...be32(1), ...be32(1), 8, 2, 0, 0, 0]), ...chunk('IDAT', z), ...chunk('IEND', [])])
+}
+
+/** Un rectangle plein posé sur la feuille (position absolue, derrière le texte), accroché à un paragraphe de 1 pt. */
+function decoPara(d: Deco): Paragraph {
+  const emu = (pt: number) => Math.round(pt * 12700)
+  return new Paragraph({
+    spacing: { before: 0, after: 0, line: 20, lineRule: LineRuleType.EXACT },
+    children: [new ImageRun({
+      type: 'png', data: solidPng(d.fill),
+      transformation: { width: Math.round(d.w * 96 / 72), height: Math.round(d.h * 96 / 72) },
+      altText: { title: 'Fond', description: 'Fond de page de garde', name: 'fond' },
+      floating: {
+        horizontalPosition: { relative: HorizontalPositionRelativeFrom.PAGE, offset: emu(d.x) },
+        verticalPosition: { relative: VerticalPositionRelativeFrom.PAGE, offset: emu(d.y) },
+        behindDocument: true, allowOverlap: true, lockAnchor: true, layoutInCell: false,
+        wrap: { type: TextWrappingType.NONE },
+      },
+    })],
+  })
+}
+
+/** La page de garde en objets Word : un seul tableau sans bordures dont chaque rangée a une hauteur exacte (précédé, si le modèle le demande, des rectangles collés au bord de la page). */
+export function coverDocx(c: Cover, W: number, H: number): (Paragraph | Table)[] {
   const t: CoverTable = coverTable(c, W, H)
   const grid = t.grid.map(tw)
   const total = grid.reduce((a, x) => a + x, 0)
@@ -76,9 +112,10 @@ export function coverDocx(c: Cover, W: number, H: number): Table {
       }),
     })
   })
-  return new Table({
+  const table = new Table({
     width: { size: total, type: WidthType.DXA }, columnWidths: grid, layout: TableLayoutType.FIXED, rows,
     margins: { top: 0, bottom: 0, left: 0, right: 0 },
     borders: { top: none, bottom: none, left: none, right: none, insideHorizontal: none, insideVertical: none },
   })
+  return [...(t.deco ?? []).map(decoPara), table]
 }

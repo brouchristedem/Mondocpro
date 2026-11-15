@@ -26,7 +26,12 @@ export interface Cell {
   edge: { t?: Edge; r?: Edge; b?: Edge; l?: Edge }
 }
 export interface Row { h: number; cells: Cell[] }
-export interface CoverTable { grid: number[]; rows: Row[] }
+/** Rectangle de couleur posé directement sur la FEUILLE (x, y, largeur, hauteur en pt depuis le coin haut gauche de la page) : il peut aller jusqu'au bord, derrière le texte. */
+export interface Deco { x: number; y: number; w: number; h: number; fill: string }
+export interface CoverTable { grid: number[]; rows: Row[]; deco?: Deco[] }
+
+/** Feuille A4 et marges de la page de garde (pt). La marge gauche se déduit de la largeur de texte W : PAGE.w - PAGE.mr - W. */
+export const PAGE = { w: 595.3, h: 841.9, mt: 70.85, mr: 70.85 }
 
 export interface TemplateInfo { id: string; name: string; tagline: string; build: (c: Cover, W: number, H: number) => CoverTable }
 
@@ -150,6 +155,7 @@ const scaleNode = (n: Node, f: number): Node => {
 export function harden(t: CoverTable): CoverTable {
   return {
     grid: t.grid,
+    deco: t.deco,
     rows: t.rows.map(r => {
       let col = 0
       const cells = r.cells.map(c => {
@@ -208,19 +214,21 @@ function academique(c: Cover, W: number, H: number): CoverTable {
   }
 }
 
-/** 2. Colonne : bandeau vert plein hauteur à gauche, texte à droite, Arial. */
+/** 2. Colonne : bandeau vert collé au bord gauche de la feuille et sur toute sa hauteur, texte à droite, Arial. */
 function colonne(c: Cover, W: number, H: number): CoverTable {
   const F: CoverFont = 'Arial', green = '1F4D3A', soft = 'CFE3D8', ink = '14181A', grey = '5B6460'
-  const lw = Math.round(W * 0.3), rw = W - lw
+  const ml = PAGE.w - PAGE.mr - W // marge gauche de la feuille
+  const colX = Math.round(PAGE.w * 0.34) // la colonne va du bord gauche jusqu'ici
+  const lw = colX - ml, rw = W - lw
   const h1 = H * 0.64, h2 = H - h1
   const yp = has(c.year) ? yearParts(c.year) : []
+  const tw = lw - 20 // largeur du texte dans la colonne
   const leftTop = cell([
-    has(c.school) ? T(U(c.school), fit(U(c.school), { font: F, bold: true, width: lw - 34, maxH: h1 * 0.34, max: 10.5, min: 6.5, lh: 1.3, track: 1 }), F, { bold: true, color: 'FFFFFF', track: 1, lh: 1.3, after: 12 }) : null,
-    has(c.school) && has(c.group) ? rule(0.75, soft, { after: 10, indR: lw * 0.55 }) : null,
-    has(c.group) ? T(c.group!.trim(), 9.5, F, { color: soft, lh: 1.3 }) : null,
-  ], { fill: green, pad: [28, 16, 0, 18] })
-  const leftBot = cell(yp.map((y, i) => T(y, yp.length > 1 ? 30 : 24, F, { bold: true, color: 'FFFFFF', lh: 1.05, after: i === 0 && yp.length > 1 ? 0 : 0 })),
-    { fill: green, valign: 'bottom', pad: [0, 16, 28, 18] })
+    has(c.school) ? T(U(c.school), fit(U(c.school), { font: F, bold: true, width: tw, maxH: h1 * 0.4, max: 11, min: 6.5, lh: 1.3, track: 1 }), F, { bold: true, color: 'FFFFFF', track: 1, lh: 1.3, after: 12 }) : null,
+    has(c.school) && has(c.group) ? rule(0.75, soft, { after: 10, indR: tw * 0.5 }) : null,
+    has(c.group) ? T(c.group!.trim(), 10, F, { color: soft, lh: 1.3 }) : null,
+  ], { valign: 'top', pad: [14, 20, 0, 0] })
+  const leftBot = cell(yp.map(y => T(y, yp.length > 1 ? 36 : 28, F, { bold: true, color: 'FFFFFF', lh: 1.05 })), { valign: 'bottom', pad: [0, 20, 0, 0] })
   const title = c.title.trim()
   const rightTop = cell([
     logoN(c, 50, 'left', 18),
@@ -231,8 +239,12 @@ function colonne(c: Cover, W: number, H: number): CoverTable {
   const rightBot = cell(infoItems(c, false).flatMap(it => [
     lab(it, { font: F, size: 8, color: grey, caps: true, track: 1.5, bold: true, after: 2 }),
     T(it.value, 12, F, { bold: true, color: ink, after: 9 }),
-  ]), { valign: 'bottom', pad: [0, 0, 28, 30] })
-  return { grid: [lw, rw], rows: [row(h1, [leftTop, rightTop]), row(h2, [leftBot, rightBot])] }
+  ]), { valign: 'bottom', pad: [0, 0, 0, 30] })
+  return {
+    grid: [lw, rw],
+    rows: [row(h1, [leftTop, rightTop]), row(h2, [leftBot, rightBot])],
+    deco: [{ x: 0, y: 0, w: colX, h: PAGE.h, fill: green }],
+  }
 }
 
 /** 3. Éditorial : titre géant en bas à gauche, barre d'accent vermillon, informations sobres, Calibri. */
@@ -263,52 +275,65 @@ function editorial(c: Cover, W: number, H: number): CoverTable {
   }
 }
 
-/** 4. Millésime : l'année en très grand format, tout aligné à droite, Georgia + chiffres Arial. */
+/** 4. Millésime : l'année en très grand format à droite ; les informations en tableau structuré (étiquette | valeur) à gauche, Georgia + chiffres Arial. */
 function millesime(c: Cover, W: number, H: number): CoverTable {
-  const F: CoverFont = 'Georgia', N: CoverFont = 'Arial', ink = '1B1B1B', grey = '77726A', numeral = 'E3DDD0'
+  const F: CoverFont = 'Georgia', N: CoverFont = 'Arial', ink = '1B1B1B', grey = '77726A', numeral = 'E3DDD0', hair = 'CFC8B8'
   const yp = has(c.year) ? yearParts(c.year) : []
-  const ySize = yp.length > 1 ? 104 : yp[0] ? Math.min(124, Math.floor(W / (yp[0].length * 0.74))) : 0
-  const h1 = H * 0.1, h2 = yp.length ? yp.length * ySize + 10 : H * 0.04, h3 = H * 0.36, h4 = H - h1 - h2 - h3
-  const title = c.title.trim()
+  const ySize = yp.length > 1 ? 96 : yp[0] ? Math.min(118, Math.floor(W / (yp[0].length * 0.74))) : 0
   const its = infoItems(c, false)
-  return {
-    grid: [W],
-    rows: [
-      row(h1, [cell([logoN(c, 36, 'right', 6), has(c.school) ? T(U(c.school), 9.5, F, { color: grey, track: 2, align: 'right' }) : null])]),
-      row(h2, [cell(yp.map(y => T(y, ySize, N, { bold: true, color: numeral, align: 'right', lh: 1 })), { valign: 'middle' })]),
-      row(h3, [cell([
-        has(c.kind) ? T(U(c.kind), 10.5, F, { italic: true, color: grey, track: 3, align: 'right', after: 12 }) : null,
-        title ? T(title, fit(title, { font: F, bold: true, width: W, maxH: h3 * 0.62, max: 32, min: 16, lh: 1.15 }), F, { bold: true, color: ink, align: 'right', lh: 1.15 }) : null,
-        title ? rule(2, ink, { before: 16, indL: W - 64 }) : null,
-      ], { valign: 'bottom' })]),
-      row(h4, [cell(its.flatMap((it, i) => [
-        T(it.label ? `${it.label} · ${it.value}` : it.value, i === 0 ? 13.5 : 11, F, { bold: i === 0, color: i === 0 ? ink : grey, align: 'right', after: 4 }),
-      ]), { valign: 'top', pad: [22, 0, 0, 0] })]),
-    ],
-  }
+  const rowH = its.length > 5 ? 26 : 30
+  const itemsH = its.length * rowH
+  const h1 = H * 0.1, h2 = yp.length ? yp.length * ySize + 10 : H * 0.04
+  const h3 = Math.max(H * 0.24, H - h1 - h2 - itemsH)
+  const title = c.title.trim()
+  const lw = Math.round(W * 0.3), vw = W - lw
+  const rows: Row[] = [
+    row(h1, [cell([logoN(c, 36, 'right', 6), has(c.school) ? T(U(c.school), 9.5, F, { color: grey, track: 2, align: 'right' }) : null], { span: 2 })]),
+    row(h2, [cell(yp.map(y => T(y, ySize, N, { bold: true, color: numeral, align: 'right', lh: 1 })), { span: 2, valign: 'middle' })]),
+    row(h3, [cell([
+      has(c.kind) ? T(U(c.kind), 10.5, F, { italic: true, color: grey, track: 3, align: 'right', after: 12 }) : null,
+      title ? T(title, fit(title, { font: F, bold: true, width: W, maxH: h3 * 0.55, max: 32, min: 16, lh: 1.15 }), F, { bold: true, color: ink, align: 'right', lh: 1.15 }) : null,
+      title ? rule(2, ink, { before: 16, indL: W - 64 }) : null,
+    ], { span: 2, valign: 'middle', pad: [0, 0, 18, 0] })]),
+  ]
+  its.forEach((it, i) => {
+    const last = i === its.length - 1
+    const e: Edge = { w: 0.5, c: hair }
+    rows.push(row(rowH, [
+      cell([it.label ? T(U(it.label), 7.5, N, { bold: true, color: grey, track: 1.4 }) : null], { valign: 'middle', edge: { t: e, ...(last ? { b: e } : {}) } }),
+      cell([T(it.value, 12, F, { bold: true, color: ink })], { valign: 'middle', edge: { t: e, ...(last ? { b: e } : {}) } }),
+    ]))
+  })
+  return { grid: [lw, vw], rows }
 }
 
-/** 5. Cartouche : étiquette bleue, grand titre, bloc technique encadré en bas, Arial + Calibri. */
+/** 5. Cartouche : vraie bande bleue sur toute la largeur (nom de l'établissement écrit dessus), grand titre, bloc technique encadré en bas, Arial + Calibri. */
 function cartouche(c: Cover, W: number, H: number): CoverTable {
-  const F: CoverFont = 'Arial', M: CoverFont = 'Calibri', blue = '1E3A8A', navy = '0B1F4B', grey = '475569'
+  const F: CoverFont = 'Arial', M: CoverFont = 'Calibri', blue = '1E3A8A', navy = '0B1F4B', soft = 'BFD0F5'
   const q = W / 4
   const its = infoItems(c, true).slice(0, 7)
   const nRows = Math.ceil(its.length / 2)
   const cartH = nRows * 46
-  const h1 = 28, h3 = cartH, h2 = H - h1 - h3 - 16
+  const band = has(c.school) || has(c.kind)
+  const h1 = band ? 36 : 0, h3 = cartH, h2 = H - h1 - h3 - 16
   const title = c.title.trim()
-  const rows: Row[] = [
-    row(h1, [
-      cell([has(c.kind) ? T(U(c.kind), 9, F, { bold: true, color: 'FFFFFF', track: 2.5 }) : null], { span: 2, fill: blue, valign: 'middle', pad: [0, 10, 0, 12] }),
-      cell([has(c.school) ? T(U(c.school), 9, M, { bold: true, color: grey, track: 1.5, align: 'right' }) : null], { span: 2, valign: 'middle' }),
-    ]),
+  const rows: Row[] = []
+  if (band) {
+    const sw = has(c.kind) ? q * 3 : W
+    const schoolSize = has(c.school) ? fit(U(c.school), { font: M, bold: true, width: sw - 28, maxH: 12, max: 10, min: 6.5, lh: 1.1, track: 1.6 }) : 10
+    rows.push(row(h1, [
+      cell([has(c.school) ? T(U(c.school), schoolSize, M, { bold: true, color: 'FFFFFF', track: 1.6, lh: 1.1 }) : null], { span: has(c.kind) ? 3 : 4, fill: blue, valign: 'middle', pad: [0, 8, 0, 14] }),
+      ...(has(c.kind) ? [cell([T(U(c.kind), 8.5, M, { bold: true, color: soft, track: 2, align: 'right' })], { span: 1, fill: blue, valign: 'middle', pad: [0, 14, 0, 4] })] : []),
+    ]))
+  }
+  rows.push(
     row(h2, [cell([
       logoN(c, 52, 'left', 20),
       title ? T(title, fit(title, { font: F, bold: true, width: W, maxH: h2 * 0.6, max: 31, min: 16, lh: 1.15 }), F, { bold: true, color: navy, lh: 1.15 }) : null,
       title ? rule(2.5, blue, { before: 16, indR: W - 70 }) : null,
     ], { span: 4, valign: 'middle' })]),
     row(16, [cell([], { span: 4 })]),
-  ]
+  )
   const e: Edge = { w: 0.75, c: blue }
   for (let i = 0; i < its.length; i += 2) {
     const pair = its.slice(i, i + 2)
@@ -446,37 +471,26 @@ function reperes(c: Cover, W: number, H: number): CoverTable {
   return { grid: [nw, rw], rows }
 }
 
-/** 10. Cascade : lecture en escalier, du haut à gauche vers le bas à droite, Times italique + Arial. */
-function cascade(c: Cover, W: number, H: number): CoverTable {
-  const F: CoverFont = 'Times New Roman', M: CoverFont = 'Arial', plum = '4A2C5E', ink = '1A1A1A', grey = '6B6372'
-  const s = Math.round(W * 0.1)
+/** 10. Classique : le modèle d'origine du site : tout centré, établissement, logo, type de document, titre entre deux filets, puis les lignes « Présenté par : … ». */
+function classique(c: Cover, W: number, H: number): CoverTable {
+  const F: CoverFont = 'Times New Roman'
   const title = c.title.trim()
-  const its = infoItems(c, false)
-  const first = its[0]
-  const mid = its.slice(1, 3)
-  const rest = its.slice(3)
-  const h1 = H * 0.07, h2 = H * 0.12, h3 = H * 0.34, h4 = H * 0.13, h5 = H * 0.16, h6 = H - h1 - h2 - h3 - h4 - h5
-  const iv = (it: Item, a: Align = 'left'): Node[] => [
-    lab(it, { font: M, size: 7.5, color: grey, caps: true, track: 2, after: 3, align: a }),
-    T(it.value, 14, F, { color: ink, bold: true, after: 8, align: a }),
-  ].filter((n): n is TextN => !!n)
-  return {
-    grid: [W],
-    rows: [
-      row(h1, [cell([has(c.school) ? T(U(c.school), 9, M, { bold: true, color: plum, track: 2.5 }) : null], { valign: 'middle', edge: { b: { w: 0.75, c: plum } } })]),
-      row(h2, [cell([logoN(c, 40, 'left', 8), has(c.kind) ? T(U(c.kind), 9, M, { color: grey, track: 4 }) : null], { valign: 'middle', pad: [0, 0, 0, s] })]),
-      row(h3, [cell([
-        title ? T(title, fit(title, { font: F, width: W - 2 * s, maxH: h3 * 0.7, max: 32, min: 16, lh: 1.18 }), F, { italic: true, color: ink, lh: 1.18 }) : null,
-      ], { valign: 'middle', pad: [0, 0, 0, 2 * s] })]),
-      row(h4, [cell(first ? iv(first) : [], { valign: 'middle', pad: [0, 0, 0, 3 * s] })]),
-      row(h5, [cell(mid.flatMap(it => iv(it)), { valign: 'middle', pad: [0, 0, 0, 4 * s] })]),
-      row(h6, [cell([
-        ...rest.flatMap(it => iv(it)),
-        has(c.year) ? rule(0.75, plum, { before: 4, after: 6 }) : null,
-        has(c.year) ? T(`Année académique ${c.year.trim()}`, 10, M, { bold: true, color: plum, track: 1.5 }) : null,
-      ], { valign: 'bottom', pad: [0, 0, 4, 5 * s] })]),
-    ],
-  }
+  const lines: string[] = []
+  if (has(c.author)) lines.push(`Présenté par : ${c.author.trim()}`)
+  if (has(c.group)) lines.push(`Filière : ${(c.group ?? '').trim()}`)
+  if (has(c.supervisor)) lines.push(`Encadreur : ${c.supervisor.trim()}`)
+  for (const x of c.extras ?? []) if (x.trim()) lines.push(x.trim())
+  const nodes: (Node | null)[] = [
+    has(c.school) ? T(U(c.school), 14, F, { bold: true, align: 'center', after: 12, lh: 1.25 }) : null,
+    logoN(c, 90, 'center', 24),
+    has(c.kind) ? T(U(c.kind), 14, F, { bold: true, align: 'center', before: 24, after: 12 }) : null,
+    title ? rule(1, '000000', { before: 8, after: 14 }) : null,
+    title ? T(title, fit(title, { font: F, bold: true, width: W, maxH: H * 0.3, max: 22, min: 15, lh: 1.25 }), F, { bold: true, align: 'center', lh: 1.25 }) : null,
+    title ? rule(1, '000000', { before: 14, after: 28 }) : null,
+    ...lines.map(l => T(l, 13, F, { align: 'center', after: 6 })),
+    has(c.year) ? T(`Année académique : ${c.year.trim()}`, 13, F, { align: 'center', before: 24 }) : null,
+  ]
+  return { grid: [W], rows: [row(H, [cell(nodes, { valign: 'top', pad: [40, 0, 0, 0] })])] }
 }
 
 export const COVER_TEMPLATES: TemplateInfo[] = [
@@ -489,10 +503,11 @@ export const COVER_TEMPLATES: TemplateInfo[] = [
   { id: 'monogramme', name: 'Monogramme', tagline: 'Initiale encadrée, filet vertical', build: monogramme },
   { id: 'horizons', name: 'Horizons', tagline: 'Trois bandes horizontales', build: horizons },
   { id: 'reperes', name: 'Repères', tagline: 'Informations numérotées', build: reperes },
-  { id: 'cascade', name: 'Cascade', tagline: 'Lecture en escalier', build: cascade },
+  { id: 'classique', name: 'Classique', tagline: 'Le modèle d’origine, simple et centré', build: classique },
 ]
 export const DEFAULT_COVER_TEMPLATE = 'academique'
-export const templateOf = (id?: string): TemplateInfo => COVER_TEMPLATES.find(t => t.id === id) ?? COVER_TEMPLATES[0]
+/** « cascade » (ancien gabarit retiré) renvoie vers « classique » pour les documents déjà enregistrés. */
+export const templateOf = (id?: string): TemplateInfo => COVER_TEMPLATES.find(t => t.id === (id === 'cascade' ? 'classique' : id)) ?? COVER_TEMPLATES[0]
 
 /** Hauteur réservée en bas de la page de garde pour le paragraphe qui termine la section dans Word. */
 export const COVER_RESERVE = 30
