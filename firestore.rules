@@ -1,8 +1,7 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Chacun lit uniquement son propre profil. Aucune écriture depuis le navigateur :
-    // le statut « payé » et le 1er document gratuit sont écrits par /api/claim (serveur).
+    // Chacun lit uniquement son propre profil. Aucune écriture depuis le navigateur.
     match /users/{uid} {
       allow read: if request.auth != null && request.auth.uid == uid;
       allow write: if false;

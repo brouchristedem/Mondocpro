@@ -4,11 +4,10 @@ import {
   signInWithEmailLink, signInWithPopup, signOut,
 } from 'firebase/auth'
 import type { CloudDoc } from './sync'
-import { collection, doc, getDoc, getDocs, getFirestore, onSnapshot, setDoc } from 'firebase/firestore'
+import { collection, doc, getDoc, getDocs, getFirestore, setDoc } from 'firebase/firestore'
 
 const env = import.meta.env
 export const HAS_BACKEND = !!env.VITE_FIREBASE_API_KEY
-export const WAVE_LINK = env.VITE_WAVE_LINK as string | undefined
 
 const app = initializeApp({
   apiKey: env.VITE_FIREBASE_API_KEY, authDomain: env.VITE_FIREBASE_AUTH_DOMAIN,
@@ -18,7 +17,7 @@ const auth = getAuth(app)
 const db = getFirestore(app)
 const MAIL = 'mondocpro:email'
 
-export interface Account { uid: string; email: string | null; paid: boolean; freeDocId?: string; loaded?: boolean }
+export interface Account { uid: string; email: string | null }
 
 /** Brouillon synchronisé sur le compte : le même texte, les mêmes réglages et le même document sur tous les appareils. */
 export interface Draft { text: string; s: string; preset: string; docId: string; updatedAt: number }
@@ -29,14 +28,7 @@ export async function loadDraft(uid: string): Promise<Draft | null> {
 export const saveDraft = (uid: string, d: Draft) => setDoc(doc(db, 'drafts', uid), d)
 
 export function watch(cb: (a: Account | null) => void): () => void {
-  let stop = () => {}
-  const off = onAuthStateChanged(auth, u => {
-    stop(); stop = () => {}
-    if (!u) return cb(null)
-    cb({ uid: u.uid, email: u.email, paid: false })
-    stop = onSnapshot(doc(db, 'users', u.uid), s => cb({ uid: u.uid, email: u.email, loaded: true, paid: !!s.data()?.paid, freeDocId: s.data()?.freeDocId as string | undefined }), () => {})
-  })
-  return () => { off(); stop() }
+  return onAuthStateChanged(auth, u => cb(u ? { uid: u.uid, email: u.email } : null))
 }
 
 export const loginGoogle = () => signInWithPopup(auth, new GoogleAuthProvider()).then(() => undefined)
@@ -56,16 +48,6 @@ export async function finishLink() {
   if (!email) return
   await signInWithEmailLink(auth, email, location.href)
   history.replaceState(null, '', location.pathname)
-}
-
-export async function claim(action: 'download' | 'activate', payload: Record<string, unknown>) {
-  const token = await auth.currentUser?.getIdToken()
-  const r = await fetch((env.VITE_API_URL || '') + '/api/claim', {
-    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ action, ...payload }),
-  })
-  const body = await r.json().catch(() => ({}))
-  return { status: r.status, error: (body.error as string | undefined) ?? '' }
 }
 
 /** Espace admin (réservé au propriétaire, vérifié côté serveur). */
