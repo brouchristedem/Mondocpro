@@ -1,11 +1,11 @@
 # mondocpro
 
 Texte collé → document Word (et PDF) prêt à rendre : page de garde, sommaire automatique, pagination, tableaux, pages paysage.
-**Gratuit pour le moment**, sans compte. Application installable (Chrome / Android, écran d'accueil iPhone) et utilisable hors connexion.
+**Gratuit pour le moment**, avec connexion (Google ou lien par e-mail) pour retrouver ses documents sur tous ses appareils. Application installable (Chrome / Android, écran d'accueil iPhone) et utilisable hors connexion.
 
 - `src/` : site (Vite + React + TypeScript). Le Word est fabriqué dans le navigateur (`docx`), le PDF aussi (voir plus bas).
 - `src/lib/parse.ts` : reconnaissance des titres, listes et tableaux (tabulations, `|`, colonnes alignées par espaces, `;`, tableaux « aplatis »).
-- `src/storage.ts` : « Mes documents », enregistrés dans le navigateur (enregistrement automatique + bouton Enregistrer).
+- `src/storage.ts` : « Mes documents » : copie locale dans le navigateur (enregistrement automatique + bouton Enregistrer), synchronisée avec le compte (voir « Connexion et synchronisation »).
 - `public/manifest.webmanifest`, `public/sw.js` : application installable et mode hors connexion.
 
 ## Parcours
