@@ -1,4 +1,4 @@
-import type { Cover } from './types'
+import type { Cover, Settings } from './types'
 import { stripToc, kindOf } from './parse'
 
 /**
@@ -73,4 +73,19 @@ export function extractCover(src: string): Detected {
   if (extras.length) { cover.extras = extras.map(i => lines[i].trim().replace(/\s*[:：]\s*/, ' : ')); drop.push(...extras) }
   const body = lines.filter((_, i) => !drop.includes(i)).join('\n').replace(/^\s+/, '')
   return { cover, body }
+}
+
+/** Infos de la page de garde qui appartiennent à UN document (le gabarit, le logo et « activée » restent). */
+export const BLANK_COVER_INFO = { school: '', kind: '', title: '', author: '', group: '', extras: [] as string[], supervisor: '', year: '' }
+
+/**
+ * Page de garde écrite au début d'un texte : ses infos passent dans les réglages et sortent du texte.
+ * fresh = le texte remplace tout le précédent (collage dans une zone vide, import Word) : les infos de l'ancien
+ * document sont d'abord effacées, pour qu'elles ne se retrouvent pas sur la page de garde du nouveau.
+ */
+export function adoptCover(t: string, base: Settings, fresh = false): { text: string; s: Settings } {
+  const b: Settings = fresh ? { ...base, cover: { ...base.cover, ...BLANK_COVER_INFO } } : base
+  const m = extractCover(t)
+  if (!Object.keys(m.cover).length) return { text: t, s: b }
+  return { text: m.body, s: { ...b, cover: { ...b.cover, ...m.cover, enabled: true } } }
 }

@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { extractCover } from './lib/cover'
+import { adoptCover, BLANK_COVER_INFO } from './lib/cover'
 import { parse } from './lib/parse'
 import type { Layout } from './lib/layout'
 import { DEFAULTS, DEFAULT_PRESET, PRESETS, type Block, type Cover, type PresetKey, type Settings } from './lib/types'
@@ -93,15 +93,11 @@ export default function App() {
   const inView = view === 'app'
   const toastT = useRef<number>(0)
 
-  /** Page de garde écrite au début d'un texte collé : ses infos passent dans l'onglet « Page de garde » (modifiable là-bas) et sortent du texte. */
-  const adoptCover = (t: string, base: Settings): { text: string; s: Settings } => {
-    const m = extractCover(t)
-    if (!Object.keys(m.cover).length) return { text: t, s: base }
-    return { text: m.body, s: { ...base, cover: { ...base.cover, ...m.cover, enabled: true } } }
-  }
   const onType = (v: string) => {
     if (v.length - text.length < 60) { setText(v); return } // frappe normale
-    const r = adoptCover(v, s) // gros ajout d'un coup = collage
+    // gros ajout d'un coup = collage ; s'il remplace le texte d'avant (zone vide ou ancien texte disparu), les infos de l'ancien document partent aussi
+    const fresh = !text.trim() || !v.includes(text.trim().slice(0, 40))
+    const r = adoptCover(v, s, fresh)
     setText(r.text); if (r.s !== s) setS(r.s)
   }
 
@@ -307,7 +303,7 @@ export default function App() {
       const t = await navigator.clipboard.readText()
       if (!t.trim()) { say('Le presse-papiers est vide : copie d’abord ton texte.'); return }
       if (text.trim()) setText(cur => cur.replace(/\s+$/, '') + '\n\n' + t)
-      else { const r = adoptCover(t, s); setText(r.text); if (r.s !== s) setS(r.s) }
+      else { const r = adoptCover(t, s, true); setText(r.text); if (r.s !== s) setS(r.s) }
       setTab('texte')
     } catch {
       taRef.current?.focus()
@@ -330,7 +326,7 @@ export default function App() {
         say(e instanceof ImportError ? e.message : 'Impossible de lire ce fichier Word.')
         return
       }
-      const a = adoptCover(r.text, s)
+      const a = adoptCover(r.text, s, true) // le Word remplace tout : l'ancienne page de garde aussi
       setText(a.text); if (a.s !== s) setS(a.s)
       setTab('texte')
       const st = r.stats
@@ -580,7 +576,7 @@ export default function App() {
                       </div>
                       {importNote.length > 0 && <div className="importnote" role="status">{importNote.map((n, i) => <p key={i}>{n}</p>)}<button className="link" onClick={() => setImportNote([])}>Fermer</button></div>}
                       <textarea ref={taRef} value={text} onChange={e => onType(e.target.value)} spellCheck={false} aria-label="Ton texte" placeholder="Écris ici, ou colle ton texte…" />
-                      {!empty && <div className="tools"><button className="link" onClick={() => { setText(''); setCover({ title: '' }); taRef.current?.focus() }}>Tout effacer</button></div>}
+                      {!empty && <div className="tools"><button className="link" onClick={() => { setText(''); setCover(BLANK_COVER_INFO); taRef.current?.focus() }}>Tout effacer</button></div>}
                       {empty
                         ? <p className="hint">Écris directement, ou copie ton texte depuis Word, un mail, un PDF ou tes notes. Tout le reste est automatique. Touche « Agrandir » pour écrire sur une grande feuille.</p>
                         : <div className="meter" aria-live="polite"><span><b>{heads}</b> titre{heads > 1 ? 's' : ''}</span><span><b>{tables}</b> tableau{tables > 1 ? 'x' : ''}</span>{pages && <span><b>{pages}</b> page{pages > 1 ? 's' : ''}</span>}</div>}
