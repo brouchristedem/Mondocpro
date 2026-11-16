@@ -10,7 +10,7 @@ import { useInstall } from './install'
 import ContactFab from './ContactFab'
 import Logo from './Logo'
 import CoverPicker from './CoverPicker'
-import { IArrow, ICheck, ICover, IDownload, IEdit, IEye, IFolder, IHash, IList, IPaste, IPhone, IPlus, IShare, ISliders, ITable, ICloud, IHeading, IExpand } from './icons'
+import { IArrow, ICheck, ICover, IDownload, IEdit, IEye, IFolder, IHash, IList, IPaste, IPhone, IPlus, IShare, ISliders, ITable, ICloud, IHeading, IExpand, IUpload } from './icons'
 import { PHONE_SHOW, TEL_URL, WA_URL } from './contact'
 
 const AdminDialog = lazy(() => import('./AdminDialog'))
@@ -68,6 +68,8 @@ export default function App() {
   const [error, setError] = useState('')
   const [dialog, setDialog] = useState<null | 'download' | 'library' | 'login' | 'admin' | 'about'>(null)
   const [users, setUsers] = useState<number | null>(null)
+  const [importNote, setImportNote] = useState<string[]>([])
+  const fileRef = useRef<HTMLInputElement>(null)
   const [saved, setSaved] = useState<'idle' | 'saving' | 'saved' | 'error'>(init.text.trim() ? 'saved' : 'idle')
   const [docs, setDocs] = useState<Doc[]>(() => listDocs())
   const [toast, setToast] = useState('')
@@ -313,6 +315,31 @@ export default function App() {
     }
   }
 
+  /** Importe un fichier Word (.docx) : lu dans le navigateur, converti en texte structuré (titres, listes, tableaux) puis mis en page comme un texte collé. */
+  const importWord = async (file: File) => {
+    if (!/\.docx$/i.test(file.name) && file.type !== 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+      say(/\.pdf$/i.test(file.name) ? 'L’import PDF arrive bientôt : pour l’instant, importe un fichier Word (.docx).' : 'Choisis un fichier Word (.docx).')
+      return
+    }
+    if (text.trim() && !window.confirm('Ton texte actuel sera remplacé par le document Word. Continuer ?')) return
+    setBusy(true); setImportNote([])
+    try {
+      const { importDocx, ImportError } = await import('./lib/importDocx')
+      let r
+      try { r = await importDocx(await file.arrayBuffer()) } catch (e) {
+        say(e instanceof ImportError ? e.message : 'Impossible de lire ce fichier Word.')
+        return
+      }
+      const a = adoptCover(r.text, s)
+      setText(a.text); if (a.s !== s) setS(a.s)
+      setTab('texte')
+      const st = r.stats
+      const bits = [`${st.words.toLocaleString('fr-FR')} mots`, st.headings ? `${st.headings} titre${st.headings > 1 ? 's' : ''}` : '', st.tables ? `${st.tables} tableau${st.tables > 1 ? 'x' : ''}` : '', st.notes ? `${st.notes} note${st.notes > 1 ? 's' : ''} de bas de page` : ''].filter(Boolean)
+      setImportNote([`Document importé : ${bits.join(', ')}.`, ...r.warnings])
+      say('Ton document Word est importé.')
+    } finally { setBusy(false); if (fileRef.current) fileRef.current.value = '' }
+  }
+
   const save = (b: Blob, ext: string, name: string) => {
     const a = document.createElement('a')
     a.href = URL.createObjectURL(b)
@@ -548,8 +575,10 @@ export default function App() {
                     <>
                       <div className="paste-row">
                         <button className="btn sm" onClick={paste}><IPaste size={18} />Coller mon texte</button>
+                        <button className="btn ghost sm" onClick={() => fileRef.current?.click()} disabled={busy}><IUpload size={18} />Importer un Word</button>
                         <button className="btn ghost sm" onClick={() => setFocus('ecrire')}><IExpand size={18} />Agrandir</button>
                       </div>
+                      {importNote.length > 0 && <div className="importnote" role="status">{importNote.map((n, i) => <p key={i}>{n}</p>)}<button className="link" onClick={() => setImportNote([])}>Fermer</button></div>}
                       <textarea ref={taRef} value={text} onChange={e => onType(e.target.value)} spellCheck={false} aria-label="Ton texte" placeholder="Écris ici, ou colle ton texte…" />
                       {!empty && <div className="tools"><button className="link" onClick={() => { setText(''); setCover({ title: '' }); taRef.current?.focus() }}>Tout effacer</button></div>}
                       {empty
@@ -658,6 +687,7 @@ export default function App() {
                       <h3>Ton document apparaît ici</h3>
                       <p>Écris ou colle ton texte : les pages, le sommaire et les tableaux s’affichent tels qu’ils seront dans Word.</p>
                       <button className="btn" onClick={paste}><IPaste size={18} />Coller mon texte</button>
+                      <button className="btn ghost" onClick={() => fileRef.current?.click()} disabled={busy}><IUpload size={18} />Importer un Word</button>
                     </div>
                   )
                   : <Suspense fallback={<p className="hint">Chargement de l’aperçu…</p>}><Preview layout={layout} onExpand={() => setFocus('apercu')} /></Suspense>}
@@ -681,6 +711,7 @@ export default function App() {
       <ContactFab />
       {dialog === 'login' && acc && <Suspense fallback={null}><LoginDialog acc={acc} onClose={() => { wantApp.current = false; setStarting(false); setDialog(null) }} /></Suspense>}
       {focus && <Suspense fallback={null}><Focus text={text} onType={onType} s={s} layout={layout} start={focus} status={savedLabel} onPaste={paste} onClose={() => setFocus(null)} /></Suspense>}
+      <input ref={fileRef} type="file" hidden accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={e => { const f = e.target.files?.[0]; if (f) void importWord(f) }} />
       {toast && <div className="toast" role="status">{toast}</div>}
     </>
   )

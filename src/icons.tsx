@@ -13,6 +13,7 @@ const make = (paths: ReactNode) =>
 export const IFolder = make(<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />)
 export const IPlus = make(<path d="M12 5v14M5 12h14" />)
 export const IPaste = make(<><rect x="6" y="4" width="12" height="17" rx="2" /><path d="M9.5 4h5v3h-5zM9.5 12h5M9.5 16h3" /></>)
+export const IUpload = make(<path d="M12 16V5M7 9l5-5 5 5M5 20h14" />)
 export const IDownload = make(<path d="M12 4v11M7 11l5 5 5-5M5 20h14" />)
 export const ICheck = make(<path d="M5 12.5l4.5 4.5L19 7.5" />)
 export const IFile = make(<path d="M7 3h7l5 5v12a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zM14 3v5h5M9 13h6M9 17h4" />)

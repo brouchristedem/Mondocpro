@@ -223,7 +223,9 @@ h2 { font-weight: 700; font-size: clamp(28px, 4.6vw, 42px); line-height: 1.05; l
   .view { border-top: 0; min-height: 560px; }
 }
 
-.paste-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.paste-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; margin-bottom: 12px; }
+.importnote { margin: 0 0 12px; padding: 10px 14px; border-radius: 14px; background: #eef3ff; color: #1b2a6b; font-size: .88rem; line-height: 1.45; }
+.importnote p { margin: 0 0 4px; }
 .panel textarea { display: block; width: 100%; min-height: 46dvh; max-width: 100%; resize: vertical; padding: 14px; border: 1px solid var(--line-2); border-radius: 14px; background: #FCFDFF; line-height: 1.55; font-size: 16px; }
 .panel textarea::placeholder { color: #8C95B0; }
 .panel textarea:focus, .field input:focus, .field select:focus, .field textarea:focus, .modal input:focus { outline: 0; border-color: var(--cobalt); box-shadow: 0 0 0 4px rgba(35, 71, 224, .14); }

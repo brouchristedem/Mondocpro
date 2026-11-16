@@ -147,7 +147,7 @@ function splitRow(line: string): string[] {
   if (line.includes('\t')) return line.split('\t').map(c => c.trim())
   return line.replace(/^\||\|$/g, '').split('|').map(c => c.trim())
 }
-const isPipeRow = (l: string) => /^\|.*\|$/.test(l.trim()) && l.trim().length > 2
+const isPipeRow = (l: string) => /^\|[^]*\|$/.test(l.trim()) && l.trim().length > 2
 /** Une tabulation en tout début de ligne est un retrait (paragraphe), pas une colonne. */
 const isRowLine = (l: string) => l.replace(/^\t+/, '').includes('\t') || isPipeRow(l)
 /** Ligne « | --- | :---: | » d'un tableau Markdown. Une ligne de tirets en tabulations (« - ⇥ - ») est une vraie ligne de données. */
