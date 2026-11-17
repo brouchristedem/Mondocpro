@@ -275,7 +275,7 @@ function editorial(c: Cover, W: number, H: number): CoverTable {
   }
 }
 
-/** 4. Millésime : l'année en très grand format à droite ; les informations en tableau structuré (étiquette | valeur) à gauche, Georgia + chiffres Arial. */
+/** 4. Millésime : l'année en très grand format à gauche ; les informations en tableau structuré (étiquette | valeur) à droite, Georgia + chiffres Arial. */
 function millesime(c: Cover, W: number, H: number): CoverTable {
   const F: CoverFont = 'Georgia', N: CoverFont = 'Arial', ink = '1B1B1B', grey = '77726A', numeral = 'E3DDD0', hair = 'CFC8B8'
   const yp = has(c.year) ? yearParts(c.year) : []
@@ -286,25 +286,26 @@ function millesime(c: Cover, W: number, H: number): CoverTable {
   const h1 = H * 0.1, h2 = yp.length ? yp.length * ySize + 10 : H * 0.04
   const h3 = Math.max(H * 0.24, H - h1 - h2 - itemsH)
   const title = c.title.trim()
-  const lw = Math.round(W * 0.3), vw = W - lw
+  const sp = Math.round(W * 0.3), lw = Math.round(W * 0.24), vw = W - sp - lw
   const rows: Row[] = [
-    row(h1, [cell([logoN(c, 36, 'right', 6), has(c.school) ? T(U(c.school), 9.5, F, { color: grey, track: 2, align: 'right' }) : null], { span: 2 })]),
-    row(h2, [cell(yp.map(y => T(y, ySize, N, { bold: true, color: numeral, align: 'right', lh: 1 })), { span: 2, valign: 'middle' })]),
+    row(h1, [cell([logoN(c, 36, 'left', 6), has(c.school) ? T(U(c.school), 9.5, F, { color: grey, track: 2 }) : null], { span: 3 })]),
+    row(h2, [cell(yp.map(y => T(y, ySize, N, { bold: true, color: numeral, lh: 1 })), { span: 3, valign: 'middle' })]),
     row(h3, [cell([
-      has(c.kind) ? T(U(c.kind), 10.5, F, { italic: true, color: grey, track: 3, align: 'right', after: 12 }) : null,
-      title ? T(title, fit(title, { font: F, bold: true, width: W, maxH: h3 * 0.55, max: 32, min: 16, lh: 1.15 }), F, { bold: true, color: ink, align: 'right', lh: 1.15 }) : null,
-      title ? rule(2, ink, { before: 16, indL: W - 64 }) : null,
-    ], { span: 2, valign: 'middle', pad: [0, 0, 18, 0] })]),
+      has(c.kind) ? T(U(c.kind), 10.5, F, { italic: true, color: grey, track: 3, after: 12 }) : null,
+      title ? T(title, fit(title, { font: F, bold: true, width: W, maxH: h3 * 0.55, max: 32, min: 16, lh: 1.15 }), F, { bold: true, color: ink, lh: 1.15 }) : null,
+      title ? rule(2, ink, { before: 16, indR: W - 64 }) : null,
+    ], { span: 3, valign: 'middle', pad: [0, 0, 18, 0] })]),
   ]
   its.forEach((it, i) => {
     const last = i === its.length - 1
     const e: Edge = { w: 0.5, c: hair }
     rows.push(row(rowH, [
+      cell([], { }),
       cell([it.label ? T(U(it.label), 7.5, N, { bold: true, color: grey, track: 1.4 }) : null], { valign: 'middle', edge: { t: e, ...(last ? { b: e } : {}) } }),
       cell([T(it.value, 12, F, { bold: true, color: ink })], { valign: 'middle', edge: { t: e, ...(last ? { b: e } : {}) } }),
     ]))
   })
-  return { grid: [lw, vw], rows }
+  return { grid: [sp, lw, vw], rows }
 }
 
 /** 5. Cartouche : vraie bande bleue sur toute la largeur (nom de l'établissement écrit dessus), grand titre, bloc technique encadré en bas, Arial + Calibri. */
