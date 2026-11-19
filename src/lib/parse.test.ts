@@ -182,3 +182,74 @@ assert.deepEqual((parse('Le budget est de 500.000 FCFA.\n\nLe taux est de 2.5 %.
 // deux courtes lignes sous une phrase qui ne finit pas par « : » ne deviennent pas une liste
 assert.deepEqual(kinds('Voici le texte.\n\nMaritime\n\nRoutier'), ['p', 'p', 'p'])
 console.log('Word : organigramme, titre du document, titres, étude de cas : OK')
+
+// ===== Tableaux : le même tableau, collé de toutes les façons, donne le même résultat =====
+const WANT = [['Article', 'Stock', 'Sorties'], ['Ramettes', '200', '180'], ['Toners', '40', '45'], ['Stylos', '300', '250']]
+const variants: Record<string, string> = {
+  tabulations: 'Article\tStock\tSorties\nRamettes\t200\t180\nToners\t40\t45\nStylos\t300\t250',
+  'barres + séparateur': '| Article | Stock | Sorties |\n| --- | --- | --- |\n| Ramettes | 200 | 180 |\n| Toners | 40 | 45 |\n| Stylos | 300 | 250 |',
+  'barres sans extrémités': 'Article | Stock | Sorties\nRamettes | 200 | 180\nToners | 40 | 45\nStylos | 300 | 250',
+  'barres sans extrémités + séparateur': 'Article | Stock | Sorties\n--- | --- | ---\nRamettes | 200 | 180\nToners | 40 | 45\nStylos | 300 | 250',
+  'barres, lignes vides entre les lignes': 'Article | Stock | Sorties\n\nRamettes | 200 | 180\n\nToners | 40 | 45\n\nStylos | 300 | 250',
+  'espaces alignés (PDF)': 'Article      Stock     Sorties\nRamettes       200       180\nToners          40        45\nStylos         300       250',
+  'points-virgules (CSV)': 'Article;Stock;Sorties\nRamettes;200;180\nToners;40;45\nStylos;300;250',
+  'au milieu d\'un texte': 'Voici les stocks.\n\nArticle | Stock | Sorties\nRamettes | 200 | 180\nToners | 40 | 45\nStylos | 300 | 250\n\nFin du texte.',
+}
+for (const [name, src] of Object.entries(variants)) assert.deepEqual(tables(src)[0], WANT, `tableau mal reconnu : ${name}`)
+
+// cases vides d'un formulaire : « Code | » = 2 colonnes, « | | | » = 4 colonnes, « · » = case vide ; aucune ligne perdue
+assert.deepEqual(tables('Rubrique | Information\nCode du véhicule |\nImmatriculation |\nMarque |')[0],
+  [['Rubrique', 'Information'], ['Code du véhicule', ''], ['Immatriculation', ''], ['Marque', '']])
+assert.deepEqual(tables('Date | Km | Parcours | Note\n\n| | |\n\n| | |')[0], [['Date', 'Km', 'Parcours', 'Note'], ['', '', '', ''], ['', '', '', '']])
+assert.deepEqual(tables('Date | Opération | Stock\n\n· | Initial | 200\n· | Entrée | 350')[0], [['Date', 'Opération', 'Stock'], ['', 'Initial', '200'], ['', 'Entrée', '350']])
+// deux tableaux à la suite, séparés par un titre : deux tableaux ; une barre isolée dans une phrase : jamais un tableau
+assert.equal(tables('A | B\n1 | 2\n\nSuite du texte.\n\nC | D\n3 | 4').length, 2)
+assert.equal(tables('Le symbole | sépare deux options dans cette phrase.\n\nUne autre phrase normale.').length, 0)
+
+// titre court juste au-dessus d'un tableau = titre en gras collé au tableau (ne se retrouve jamais seul en bas de page)
+const lab = parse('Identification du véhicule\nRubrique | Information\nCode |\nMarque |\n\nDésignation de l\'équipement :\nType | Cocher\nPanne | ☐\nUsure | ☐') as (Any & { keep?: boolean; flush?: boolean })[]
+assert.deepEqual(lab.map(b => b.t), ['p', 'table', 'p', 'table'])
+assert.ok(lab[0].keep && lab[0].flush && lab[0].text === '**Identification du véhicule**' && lab[2].keep)
+// annonce de liste (« … : ») : collée à ce qui suit, texte inchangé
+assert.ok((parse('Règles :\n\n- une\n- deux') as (Any & { keep?: boolean })[])[0].keep)
+
+// légende : « Tableau récapitulatif : » devient la légende (numérotée automatiquement), jamais « Tableau 1 : récapitulatif : »
+assert.equal((parse('Tableau récapitulatif des coûts :\nPoste | Montant\nA | 1\nB | 2') as Any[])[0].caption, 'Récapitulatif des coûts')
+assert.equal((parse('Tableau 2 : Les coûts\nPoste | Montant\nA | 1\nB | 2') as Any[])[0].caption, 'Les coûts')
+// la légende qui précède le tableau suivant n'est pas prise pour celle du tableau d'avant
+const two = parse('P | Q\n1 | 2\n\nTableau 2 : Suite\nR | S\n3 | 4') as Any[]
+assert.deepEqual(two.map(b => b.caption), [undefined, 'Suite'])
+
+// lignes à remplir : « --- » sous « Description : » = lignes ; ailleurs, filet Markdown supprimé comme avant
+assert.deepEqual((parse('Description du problème :\n\n---\n\n---\n\nFin.') as Any[]).map(b => b.t), ['p', 'rule', 'rule', 'p'])
+assert.deepEqual(kinds('Avant.\n\n---\n\nAprès.'), ['p', 'p'])
+
+// titre du formulaire répété en majuscules sous un titre numéroté : jamais un nouveau chapitre, les niveaux restent justes
+const form = parse('1. Calcul\n\nTexte du paragraphe assez long pour être un vrai paragraphe complet.\n\n2. FICHE DE STOCK POUR LES RAMETTES DE PAPIER\n\nFICHE DE STOCK – RAMETTES DE PAPIER\n\nA | B\n1 | 2\n\n3. CONSOMMATION MOYENNE DU VÉHICULE\n\nTexte du paragraphe assez long pour être un vrai paragraphe complet.') as (Any & { level?: number })[]
+assert.deepEqual(form.filter(b => b.t === 'h').map(b => `${b.level}:${b.text}`), ['1:1. Calcul', '1:2. FICHE DE STOCK POUR LES RAMETTES DE PAPIER', '1:3. CONSOMMATION MOYENNE DU VÉHICULE'])
+assert.ok(form.some(b => b.t === 'title' && b.text === 'FICHE DE STOCK – RAMETTES DE PAPIER'))
+// deux titres en majuscules qui n'ont rien à voir restent deux chapitres
+assert.deepEqual(H('1. Cadre\n\nTexte du paragraphe assez long pour être un vrai paragraphe complet.\n\nRÉSULTATS ATTENDUS\n\nTexte du paragraphe assez long pour être un vrai paragraphe complet.'), ['1:1. Cadre', '1:RÉSULTATS ATTENDUS'])
+
+// « Mesure 1 : … », « Mesure 2 : … » : sous-titres du titre numéroté (sans liste de mots à connaître) ; une phrase isolée ne l'est pas
+assert.deepEqual(H('10. Cinq mesures\n\nMesure 1 : Former le personnel\nTexte du paragraphe assez long pour être un vrai paragraphe complet.\nMesure 2 : Suivre le carburant\nTexte du paragraphe assez long pour être un vrai paragraphe complet.'),
+  ['1:10. Cinq mesures', '2:Mesure 1 : Former le personnel', '2:Mesure 2 : Suivre le carburant'])
+assert.deepEqual(H('Texte.\n\nMesure 1 : une seule mention dans tout le document\nTexte du paragraphe assez long pour être un vrai paragraphe complet.'), [])
+// étiquette avec parenthèses : en gras comme les autres
+assert.equal((parse('Demandeur (nom et fonction) : ________') as Any[])[0].text, '**Demandeur (nom et fonction) :** ________')
+
+// le document d'origine (TD « Moyens généraux ») : tout est reconnu, rien n'est perdu
+const td = parse([
+  'TRAVAUX DIRIGÉS C2 – ÉTUDE DE CAS N°2', 'GESTION INTÉGRÉE DES MOYENS GÉNÉRAUX', 'CAS : SOCIÉTÉ IVO-INDUSTRIE', '',
+  '1. CALCUL DES STOCKS', '', 'Tableau récapitulatif :', 'Article | Stock initial | Entrées', 'Ramettes | 200 | 150', 'Toners | 40 | 30', '',
+  '2. FICHE DE STOCK POUR LES RAMETTES DE PAPIER', '', 'FICHE DE STOCK – RAMETTES DE PAPIER', '', 'Date | Opération | Entrées | Sorties | Stock | Observation', '',
+  '· | Stock initial | - | - | 200 | Inventaire initial', '· | Entrée | 150 | - | 350 | Approvisionnement', '', 'Règles de tenue de la fiche :', '', '· Toute entrée est enregistrée', '· Toute sortie est signée', '',
+  '7. FICHE DE SUIVI DES VÉHICULES', '', 'FICHE DE SUIVI – VÉHICULE', '', 'Suivi kilométrique', 'Date | Kilométrage | Km parcourus | Observation', '', '| | |', '', '| | |', '',
+  '9. BON DE DEMANDE', '', 'Demandeur (nom et fonction) : _______________', '', 'Description du problème ou du besoin :', '', '---', '', '---', '',
+  '10. CINQ MESURES', '', 'Mesure 1 : Formaliser les procédures', 'Mettre en place un bon de sortie obligatoire pour tout retrait au magasin.', 'Mesure 2 : Attribuer un code', 'Créer un registre des immobilisations avec un code unique.',
+].join('\n')) as (Any & { level?: number })[]
+assert.deepEqual(td.map(b => b.t), ['title', 'title', 'title', 'h', 'table', 'h', 'title', 'table', 'p', 'li', 'li', 'h', 'title', 'p', 'table', 'h', 'p', 'p', 'rule', 'rule', 'h', 'h', 'p', 'h', 'p'])
+assert.deepEqual(td.filter(b => b.t === 'h').map(b => b.level), [1, 1, 1, 1, 1, 2, 2])
+assert.equal(td.find(b => b.t === 'table')!.caption, 'Récapitulatif')
+assert.deepEqual(td.filter(b => b.t === 'table').map(b => `${b.rows!.length}x${b.rows![0].length}`), ['3x3', '3x6', '3x4'])
+console.log('tableaux : toutes les façons de coller : OK')

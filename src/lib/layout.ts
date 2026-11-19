@@ -1,5 +1,5 @@
 import { CELL_BR, type Block, type Settings } from './types'
-import { A4, plan, type Item, type Plan } from './plan'
+import { A4, CHECK, plan, type Item, type Plan } from './plan'
 import { fontInfo, loadFont } from './fonts'
 import { coverHtml } from './coverHtml'
 import { coverFonts, coverTable } from './coverTemplates'
@@ -127,8 +127,12 @@ export async function layoutDocument(blocks: Block[], s: Settings): Promise<Layo
         const html = `<div style="${base(size, lh, `font-weight:${st.b ? 700 : 400};font-style:${st.i ? 'italic' : 'normal'};${st.caps ? 'text-transform:uppercase;' : ''}text-align:left;`)}">${inline(it.text)}</div>`
         out.push(para({ before: st.bef, after: st.aft, keepNext: true, pageBreakBefore: it.pageBreakBefore, html, size, lh, width: w, src: it }))
       } else if (it.k === 'p') {
-        const b = bodyStyle(w, it.text)
-        out.push(para({ before: 0, after: 6, keepNext: false, pageBreakBefore: false, ...b }))
+        const b = bodyStyle(w, it.text, it.flush ? 'text-indent:0;text-align:left;' : '')
+        out.push(para({ before: 0, after: 6, keepNext: !!it.keep, pageBreakBefore: false, ...b }))
+      } else if (it.k === 'rule') {
+        const lh = natural(s.size) * mult
+        const html = `<div style="${base(s.size, lh, 'border-bottom:0.5pt solid #000;')}">&nbsp;</div>`
+        out.push(para({ before: 0, after: 6, keepNext: false, pageBreakBefore: false, html, size: s.size, lh, width: w }))
       } else if (it.k === 'li') {
         const lh = natural(s.size) * mult
         const html = `<div style="${base(s.size, lh, `text-align:${s.justify ? 'justify' : 'left'};padding-left:36pt;text-indent:-18pt;`)}"><span style="display:inline-block;width:18pt;text-indent:0">•</span>${inline(it.text)}</div>`
@@ -157,9 +161,10 @@ export async function layoutDocument(blocks: Block[], s: Settings): Promise<Layo
     const rows = it.rows.map((r, ri) => {
       const head = isHead(ri)
       const fill = head && (cols >= 3 || it.merged.length) ? 'background:#F2F2F2;' : ''
+      const blank = ri > 0 && r.every(t => !t.trim()) // ligne vide de formulaire : hauteur d'écriture (comme le Word : 28,35 pt au moins)
       const td = (t: string, span: number) =>
         `<td${span > 1 ? ` colspan="${span}"` : ''} style="border:0.5pt solid #000;padding:3pt 4.5pt;vertical-align:middle;${fill}">` +
-        `<div style="${base(it.size, lh, `text-align:${head ? 'center' : 'left'};font-weight:${head ? 700 : 400};overflow-wrap:anywhere;`)}">${inline(t)}</div></td>`
+        `<div style="${base(it.size, lh, `text-align:${head || CHECK.test(t.trim()) ? 'center' : 'left'};font-weight:${head ? 700 : 400};overflow-wrap:anywhere;${blank ? 'min-height:22.35pt;' : ''}`)}">${inline(t) || '&nbsp;'}</div></td>`
       return `<tr>${it.merged.includes(ri) ? td(r[0], cols) : r.map(t => td(t, 1)).join('')}</tr>`
     })
     const d = measureBlock(pt(W), `${open}${rows.join('')}</tbody></table>`)

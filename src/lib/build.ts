@@ -1,12 +1,12 @@
 import {
-  AlignmentType, Bookmark, BorderStyle, Document, Footer, Header, LeaderType, LevelFormat, LineRuleType, NumberFormat, Packer,
+  AlignmentType, Bookmark, BorderStyle, Document, Footer, Header, HeightRule, LeaderType, LevelFormat, LineRuleType, NumberFormat, Packer,
   Paragraph, PageNumber, PageOrientation, SectionType, SimpleField, Table, TableCell, TableLayoutType,
   ShadingType, TableRow, TabStopType, TextRun, VerticalAlign, WidthType,
   type ISectionOptions,
 } from 'docx'
 import JSZip from 'jszip'
 import { CELL_BR, type Block, type Settings } from './types'
-import { A4, plan, widthOf, type Item } from './plan'
+import { A4, CHECK, plan, widthOf, type Item } from './plan'
 import { coverDocx } from './coverDocx'
 
 type Child = Paragraph | Table
@@ -64,10 +64,12 @@ export function buildDocument(blocks: Block[], s: Settings, nums?: PageNumbers):
       verticalAlign: VerticalAlign.CENTER,
       shading: head && (cols >= 3 || it.merged.length) ? GREY : undefined,
       margins: { top: 60, bottom: 60, left: 90, right: 90 },
-      children: [new Paragraph({ style: 'TableText', alignment: head ? AlignmentType.CENTER : AlignmentType.LEFT, children: runs(text, { size: half(it.size), bold: head }) })],
+      children: [new Paragraph({ style: 'TableText', alignment: head || CHECK.test(text.trim()) ? AlignmentType.CENTER : AlignmentType.LEFT, children: runs(text, { size: half(it.size), bold: head }) })],
     })
     const rows = it.rows.map((r, ri) => new TableRow({
       tableHeader: ri === 0 && !it.merged.includes(0), cantSplit: true,
+      // ligne entièrement vide (formulaire à remplir à la main) : assez haute pour écrire
+      height: r.every(t => !t.trim()) && ri > 0 ? { value: 567, rule: HeightRule.ATLEAST } : undefined,
       children: it.merged.includes(ri) ? [cell(r[0], 0, true, cols)] : r.map((t, ci) => cell(t, ci, isHead(ri))),
     }))
     // bordures simples explicites : on ne dépend pas des valeurs par défaut de la bibliothèque ni de Word
@@ -77,7 +79,7 @@ export function buildDocument(blocks: Block[], s: Settings, nums?: PageNumbers):
       borders: { top: line, bottom: line, left: line, right: line, insideHorizontal: line, insideVertical: line },
     })
   }
-  const toChild = (it: Item): Child => {
+  const toChild = (it: Item, landscape: boolean): Child => {
     switch (it.k) {
       case 'title':
         return new Paragraph({
@@ -92,7 +94,13 @@ export function buildDocument(blocks: Block[], s: Settings, nums?: PageNumbers):
           children: [new Bookmark({ id: tocId(it.idx), children: runs(it.text) })],
         })
       case 'li': return new Paragraph({ style: 'Body', numbering: { reference: 'bullets', level: 0 }, children: runs(it.text) })
-      case 'p': return new Paragraph({ style: 'Body', children: runs(it.text) })
+      case 'p': return new Paragraph({
+        style: 'Body', keepNext: it.keep,
+        ...(it.flush ? { indent: { firstLine: 0 }, alignment: AlignmentType.LEFT } : {}),
+        children: runs(it.text),
+      })
+      // tabulation à points de suite « ____ » sur toute la largeur : chaque ligne reste indépendante (des bordures identiques consécutives seraient fusionnées par Word)
+      case 'rule': return new Paragraph({ style: 'Body', indent: { firstLine: 0 }, tabStops: [{ type: TabStopType.RIGHT, position: width(landscape), leader: LeaderType.UNDERSCORE }], children: [new TextRun('\t')] })
       case 'cap': return new Paragraph({ style: 'Caption', keepNext: true, children: [new Bookmark({ id: `tbl${it.no}`, children: [
         new TextRun('Tableau '), new SimpleField('SEQ Tableau \\* ARABIC', String(it.no)), new TextRun(it.caption ? ` : ${it.caption}` : ''),
       ] })] })
@@ -100,7 +108,7 @@ export function buildDocument(blocks: Block[], s: Settings, nums?: PageNumbers):
       case 'gap': return new Paragraph({ spacing: { after: 160 }, children: [] })
     }
   }
-  const segs = P.segs.map(g => ({ landscape: g.landscape, children: g.items.map(toChild) }))
+  const segs = P.segs.map(g => ({ landscape: g.landscape, children: g.items.map(it => toChild(it, g.landscape)) }))
 
   // ---- page de garde : gabarit choisi (voir coverTemplates.ts), même dessin que l'aperçu ----
   const c = s.cover

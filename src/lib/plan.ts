@@ -2,11 +2,14 @@ import { CELL_BR, type Block, type Settings } from './types'
 
 /** Mise en page commune au Word et à l'aperçu : un seul endroit décide ce qui va où. */
 export const A4 = { w: 11906, h: 16838 } // twips
+/** Case à cocher seule dans une cellule : centrée. */
+export const CHECK = /^[☐☑☒✓✔]$/
 
 export type Item =
   | { k: 'h'; level: 1 | 2 | 3 | 4; text: string; idx: number; pageBreakBefore: boolean }
   | { k: 'title'; text: string; sub: boolean }
-  | { k: 'p'; text: string }
+  | { k: 'p'; text: string; keep?: boolean; flush?: boolean }
+  | { k: 'rule' }
   | { k: 'li'; text: string }
   | { k: 'cap'; no: number; caption: string }
   | { k: 'table'; no: number; rows: string[][]; colW: number[]; size: number; W: number; merged: number[]; heads: number[] }
@@ -85,8 +88,16 @@ export function plan(blocks: Block[], s: Settings): Plan {
     if (b.t === 'table') {
       const wide = s.landscape && b.rows[0].length >= 6
       if (wide) {
+        // le titre (et l'annonce) du tableau partent avec lui : jamais un titre seul au bas de la page portrait
+        const moved: Item[] = []
+        const here = cur().items
+        while (here.length) {
+          const l = here[here.length - 1]
+          if (l.k === 'h' || l.k === 'title' || (l.k === 'p' && l.keep)) moved.unshift(here.pop()!)
+          else break
+        }
         if (!cur().items.length) segs.pop()
-        segs.push({ landscape: true, items: tableItems(b, true) })
+        segs.push({ landscape: true, items: [...moved, ...tableItems(b, true)] })
         segs.push({ landscape: false, items: [] })
       } else cur().items.push(...tableItems(b, false))
     } else if (b.t === 'title') {
@@ -96,7 +107,8 @@ export function plan(blocks: Block[], s: Settings): Plan {
       cur().items.push({ k: 'h', level: b.level, text: b.text, idx: headings.length, pageBreakBefore: b.level === 1 && s.chapterBreak && !first })
       headings.push({ level: b.level, text: b.text })
     } else if (b.t === 'li') cur().items.push({ k: 'li', text: b.text })
-    else cur().items.push({ k: 'p', text: b.text })
+    else if (b.t === 'rule') cur().items.push({ k: 'rule' })
+    else cur().items.push({ k: 'p', text: b.text, ...(b.keep ? { keep: true } : {}), ...(b.flush ? { flush: true } : {}) })
   }
   if (!cur().items.length) segs.pop()
   return { segs, headings, captions, margins: marginsOf(s) }

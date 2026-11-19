@@ -5,7 +5,10 @@ export type Block =
   | { t: 'h'; level: 1 | 2 | 3 | 4; text: string }
   /** Titre du document (lignes en MAJUSCULES tout au début) : centré, jamais dans le sommaire. */
   | { t: 'title'; text: string; sub?: boolean }
-  | { t: 'p'; text: string }
+  /** keep : reste sur la même page que ce qui suit (titre de tableau, annonce de liste) ; flush : sans retrait de 1re ligne (champ de formulaire, titre de tableau). */
+  | { t: 'p'; text: string; keep?: boolean; flush?: boolean }
+  /** Ligne à remplir à la main (« --- » sous « Description : »). */
+  | { t: 'rule' }
   | { t: 'li'; text: string }
   /** merged : lignes dont la cellule occupe toute la largeur (organigramme) ; heads : lignes de titres en plus de la 1re. */
   | { t: 'table'; rows: string[][]; caption?: string; merged?: number[]; heads?: number[] }

@@ -5,12 +5,22 @@ const SPECIAL = /^(introduction|conclusion|remerciements?|d[ée]dicaces?|r[ée]s
 const INTRO_X = /^(introduction|conclusion)( g[ée]n[ée]rale)? (et|du|de|des|au|aux|à|sur)\b[^.:;!?]{3,60}$/i
 /** « Recommandation 1 : … », « Objectif 2 : … » : sous-titres numérotés, un cran sous le titre en cours. */
 const ITEM = /^(recommandations?|propositions?|pistes?|solutions?|objectifs?|constats?|hypoth[èe]ses?|enjeux?|avantages?|inconv[ée]nients?|limites?)\s+(\d{1,2}|[IVX]{1,4})\s*[:.\-–—)]\s*\S/i
+/** « Mesure 1 : … », « Cas 2 - … » : mot + numéro répétés dans le document (voir scan) = sous-titres numérotés. */
+const SERIES = /^([A-ZÀ-Ý][a-zà-ÿ'’]{2,}(?: [a-zà-ÿ'’]{2,}){0,2})\s+(\d{1,2})\s*[:.\-–—)]\s*\S/
 const PART = /^(partie|titre|livre|exercice|annexe|probl[eè]me|cas pratique)\s+(\d{1,2}|[IVXLC]{1,5}|[A-Z])\b/i
 const CHAP = /^(chapitre|chap\.|section|question|[ée]tape|fiche|s[ée]quence|activit[ée]|travail|axe|unit[ée]|le[çc]on|article)\s+(\d{1,3}|[IVXLC]{1,5}|[A-Z])\b/i
 const NUMH = /^(\d{1,2}(?:\.\d{1,2}){0,3})(?:(\s*(?:\.-|[.)\-–—/°]))|(\s))\s*(\S.*)$/
 const ROMANH = /^([IVX]{1,5})\s*(?:\.-|[.)\-–—/])\s*(\S.*)$/
 const LETTERH = /^([A-Z])\s*(?:[.)\-–—/])\s+(\S.*)$/
-const CAPTION = /^tableau\s*\d*\s*[:.\-–—]?\s*(.*)$/i
+const CAPTION = /^tableau\s*(?:n[°o]\s*)?(?:\d+\s*[:.\-–—]?|[:.\-–—])\s*(.*)$/i
+/** « Tableau récapitulatif des coûts : » juste avant un tableau = sa légende (sans numéro : il est ajouté automatiquement). */
+const INTRO_CAP = /^tableau\s+(\S.{2,100}?)\s*:\s*$/i
+const capOf = (t: string, intro: boolean): string | undefined => {
+  const m = t.match(CAPTION)
+  if (m) return m[1]
+  const k = intro ? t.match(INTRO_CAP) : null
+  return k ? k[1].charAt(0).toUpperCase() + k[1].slice(1) : undefined
+}
 const HR = /^([-*_])(\s*\1){2,}$/
 /** Numéro d'une ligne « 3. texte » ou « 3) texte » (sinon null). */
 const listNo = (l: string): number | null => { const m = l.match(/^(\d{1,2})[.)]\s+\S/); return m ? Number(m[1]) : null }
@@ -46,13 +56,15 @@ export interface Head { kind: Kind; depth: number; rank: number; text: string }
 const RANK = { part: 0, chap: 1, roman: 2, letter: 3, dec: 4, item: 6, special: 0, caps: 0, plain: 9 } as const
 
 /** Ce que le document contient déjà : sert à trancher les cas ambigus (« 1 Titre » sans point, « I. » romain ou lettre, « C. » initiale…). */
-export interface Ctx { letters: Set<string>; romans: Set<number>; plain: Set<number>; parents: Set<number>; delim: Set<number> }
+export interface Ctx { letters: Set<string>; romans: Set<number>; plain: Set<number>; parents: Set<number>; delim: Set<number>; series: Map<string, Set<number>> }
 export function scan(lines: string[]): Ctx {
-  const c: Ctx = { letters: new Set(), romans: new Set(), plain: new Set(), parents: new Set(), delim: new Set() }
+  const c: Ctx = { letters: new Set(), romans: new Set(), plain: new Set(), parents: new Set(), delim: new Set(), series: new Map() }
   for (const raw of lines) {
     const t = raw.replace(/^(\*\*|__)(.+)\1$/, '$2').trim()
     if (!t || t.length > 120 || raw.includes('\t') || t.includes('|')) continue
-    let m = t.match(NUMH)
+    let m = t.match(SERIES)
+    if (m && !/[.…]$/.test(t) && words(t) <= 16) { const k = m[1].toLowerCase(); if (!c.series.has(k)) c.series.set(k, new Set()); c.series.get(k)!.add(Number(m[2])) }
+    m = t.match(NUMH)
     if (m && UPPER_START.test(m[4])) {
       const parts = m[1].split('.')
       if (parts.length > 1) c.parents.add(Number(parts[0]))
@@ -97,6 +109,10 @@ export function headOf(raw: string, ctx?: Ctx, iso = false, loose = true, nextLo
   if ((m = line.match(PART)) && !/[a-z]/.test(m[2])) return { kind: 'part', depth: 1, rank: RANK.part, text: line }
   if ((m = line.match(CHAP)) && !/[a-z]/.test(m[2])) return { kind: 'chap', depth: 1, rank: RANK.chap, text: line }
   if (ITEM.test(line) && words(line) <= 16 && !/[a-z]/.test(line.match(ITEM)![2])) return { kind: 'item', depth: 1, rank: RANK.item, text: line }
+  if (ctx && words(line) <= 16 && (m = line.match(SERIES))) {
+    const set = ctx.series.get(m[1].toLowerCase()), n = Number(m[2])
+    if (set && (set.has(n - 1) || set.has(n + 1))) return { kind: 'item', depth: 1, rank: RANK.item, text: line }
+  }
 
   if ((m = line.match(NUMH))) {
     const depth = m[1].split('.').length
@@ -134,7 +150,7 @@ export function headOf(raw: string, ctx?: Ctx, iso = false, loose = true, nextLo
 export const kindOf = (line: string): Kind | null => headOf(line, undefined, false, true)?.kind ?? null
 
 /** « Réponse : … », « Finalité : … » : une ligne qui commence par une courte étiquette devient son propre paragraphe, étiquette en gras. */
-const LABEL = /^([A-ZÀ-Ý][^:.;!?«»"()\d]{0,34}?)\s*:\s+(\S.*)$/
+const LABEL = /^([A-ZÀ-Ý][^:.;!?«»"\d]{0,34}?)\s*:\s+(\S.*)$/
 const labelOf = (l: string): RegExpMatchArray | null => {
   const m = l.match(LABEL)
   return m && m[1].trim().split(/\s+/).length <= 5 && !CAPTION.test(l) && !m[1].includes('*') ? m : null
@@ -155,6 +171,42 @@ const isSeparator = (l: string) => /^\|?[ :\-|]+\|?$/.test(l.trim()) && l.includ
 /** Tableau Markdown sans barre en début/fin de ligne : reconnu seulement si la ligne suivante est un séparateur. */
 const isLooseHeader = (lines: string[], i: number) =>
   lines[i].includes('|') && !lines[i].includes('\t') && i + 1 < lines.length && isSeparator(lines[i + 1])
+
+/**
+ * Tableau à barres verticales « A | B | C » : avec ou sans barres aux extrémités, avec ou sans ligne « --- » sous l'en-tête
+ * (Markdown, copie d'un site ou d'une IA, formulaire écrit à la main). Les cases vides comptent : « Code | » = 2 colonnes,
+ * « | | | » = 4 colonnes. Une puce seule (« · ») dans une cellule est une case vide. Au moins 2 lignes consécutives.
+ */
+const GLYPH = /^[·•▪●■◦○▫]$/
+const pipeLine = (l: string) => l.includes('|') && !l.includes('\t') && l.trim().length > 1 && l.length <= 600
+const pipeCells = (l: string, lead: boolean, trail: boolean): string[] => {
+  let t = l.trim()
+  if (lead && t.startsWith('|')) t = t.slice(1)
+  if (trail && t.endsWith('|')) t = t.slice(0, -1)
+  return t.split('|').map(c => c.trim()).map(c => (GLYPH.test(c) ? '' : c))
+}
+export function pipeBlock(lines: string[], i: number): { rows: string[][]; end: number } | null {
+  if (i >= lines.length || !pipeLine(lines[i])) return null
+  const at: number[] = []
+  let j = i
+  let gappy = false // une ligne vide entre l'en-tête et la 1re ligne : toutes les lignes sont séparées par des lignes vides (copie d'un PDF ou de Word)
+  while (j < lines.length) {
+    if (pipeLine(lines[j])) { at.push(j); j++; continue }
+    if (lines[j].trim()) break
+    // lignes vides : le tableau continue si elles séparent toutes ses lignes, ou si ce qui suit est une ligne à remplir (formulaire)
+    let k = j
+    while (k < lines.length && !lines[k].trim()) k++
+    if (k < lines.length && pipeLine(lines[k]) && (gappy || at.length === 1 || pipeCells(lines[k], false, false).every(c => !c))) { if (at.length === 1) gappy = true; j = k; continue }
+    break
+  }
+  if (at.length < 2) return null
+  const lead = at.every(k => lines[k].trim().startsWith('|')), trail = at.every(k => lines[k].trim().endsWith('|'))
+  let rows = at.map(k => pipeCells(lines[k], lead, trail))
+  // ligne « --- | --- » juste sous l'en-tête (même nombre de cases) : séparateur Markdown, pas une ligne de données
+  if (rows[1].length === rows[0].length && rows[1].some(c => c) && rows[1].every(c => !c || /^:?-+:?$/.test(c))) rows = [rows[0], ...rows.slice(2)]
+  if (rows.length < 2 || Math.max(...rows.map(r => r.length)) < 2 || rows.some(r => r.some(c => c.length > 250))) return null
+  return { rows, end: j }
+}
 const LIST_MARK = /^(\d{1,2}[.)]|[a-z][.)]|[•·▪●■◦○\-*–—])$/i
 
 /**
@@ -365,7 +417,7 @@ export function leadingTitle(lines: string[]): { end: number; items: { text: str
   while (j < lines.length && !lines[j].trim()) j++
   if (j < lines.length) {
     const t = lines[j].trim()
-    if (!isRowLine(lines[j]) && words(t) <= 14 && t.length <= 110 && !/[.:;!?,]$/.test(t) && !/^[-•*–\d#]/.test(t) && headOf(t, undefined, false, false) === null && !labelOf(t)) { items.push({ text: t, sub: true }); j++ }
+    if (!isRowLine(lines[j]) && !t.includes('|') && words(t) <= 14 && t.length <= 110 && !/[.:;!?,]$/.test(t) && !/^[-•*–\d#]/.test(t) && headOf(t, undefined, false, false) === null && !labelOf(t)) { items.push({ text: t, sub: true }); j++ }
   }
   return { end: j, items }
 }
@@ -410,6 +462,14 @@ export function joinStray(lines: string[]): string[] {
   return out
 }
 
+/** Deux titres qui parlent de la même chose (« 2. FICHE DE STOCK POUR LES RAMETTES » / « FICHE DE STOCK – RAMETTES ») : au moins 2 mots et 60 % des mots du plus court en commun. */
+const sameTitle = (a: string, b: string): boolean => {
+  const tok = (t: string) => new Set(t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').split(' ').filter(w => w.length > 2))
+  const A = tok(a), B = tok(b)
+  const common = [...A].filter(w => B.has(w)).length
+  return common >= 2 && common / Math.min(A.size, B.size) >= 0.6
+}
+
 export function parse(src: string): Block[] {
   let lines = unflattenTables(alignColumns(joinCellLines(joinStray(stripToc(src.replace(/\r/g, '').split('\n').map(l => l.replace(/\s+$/, '')))))))
   const out: Block[] = []
@@ -419,6 +479,10 @@ export function parse(src: string): Block[] {
   const hasBlank = lines.some(l => l.trim() === '')
   const explicit = lines.some(l => /^#{1,4}\s+\S/.test(l))
   const ctx = scan(lines)
+  const pipes = new Map<number, ReturnType<typeof pipeBlock>>()
+  const pipeAt = (k: number) => { if (!pipes.has(k)) pipes.set(k, pipeBlock(lines, k)); return pipes.get(k)! }
+  /** Un tableau commence-t-il à cette ligne ? (tabulations, barres verticales, Markdown) */
+  const tableAt = (k: number) => k >= 0 && k < lines.length && (isRowLine(lines[k]) || pipeAt(k) !== null || isLooseHeader(lines, k))
 
   // niveaux : hiérarchie construite au fil du texte (PARTIE > CHAPITRE > I. > A. > 1. > 1.1 …), sans jamais sauter de niveau
   const stack: number[] = []
@@ -439,13 +503,14 @@ export function parse(src: string): Block[] {
     const j = nextIdx(i)
     if (j >= lines.length) return false
     const t = lines[j].trim()
-    return t.length >= 40 || (t.length >= 20 && /[.!?»)]$/.test(t)) || isRowLine(lines[j]) || CAPTION.test(t) || LI_START.test(t) || headOf(t, ctx, isoAt(j), true, false) !== null
+    return t.length >= 40 || (t.length >= 20 && /[.!?»)]$/.test(t)) || tableAt(j) || CAPTION.test(t) || LI_START.test(t) || headOf(t, ctx, isoAt(j), true, false) !== null
   }
 
   let para: string[] = []
-  const flush = () => { if (para.length) { out.push({ t: 'p', text: para.join(' ') }); para = [] } }
+  const flush = () => { if (para.length) { const text = para.join(' '); out.push({ t: 'p', text, ...(text.endsWith(':') ? { keep: true } : {}) }); para = [] } }
   const prevLine = (i: number) => { let k = i - 1; while (k >= 0 && !lines[k].trim()) k--; return k >= 0 ? lines[k].trim() : '' }
   let enumerating = false // lignes courtes sous une ligne qui finit par « : » (« Les modes utilisés sont : » / Maritime / Routier)
+  let ruling = false // la ligne de texte précédente finit par « : » : les « --- » qui suivent sont des lignes à remplir
 
   for (let i = 0; i < lines.length; i++) {
     const raw = lines[i]
@@ -456,11 +521,17 @@ export function parse(src: string): Block[] {
       if (shortItem(line) && headOf(line, ctx, false, false) === null) { flush(); out.push({ t: 'li', text: line }); continue }
       enumerating = false
     }
-    // filet Markdown (---, ***, ___, - - -) : séparateur, jamais du texte à imprimer
-    if (HR.test(line) && !raw.includes('\t')) { flush(); continue }
+    // filet : sous une ligne « Description : » ou en tirets bas seuls, c'est une ligne à remplir à la main ; sinon séparateur Markdown (jamais imprimé)
+    if (HR.test(line) && !raw.includes('\t')) {
+      flush()
+      if (ruling || /^_{8,}$/.test(line.replace(/\s/g, ''))) out.push({ t: 'rule' })
+      continue
+    }
+    ruling = /:$/.test(line)
 
+    const pipe = pipeAt(i)
     const loose = isLooseHeader(lines, i)
-    if (isRowLine(raw) || loose) {
+    if (pipe || isRowLine(raw) || loose) {
       const rows: string[][] = []
       let j = i
       const isRow = (l: string) => isRowLine(l) || (loose && l.includes('|') && l.trim() !== '')
@@ -478,8 +549,8 @@ export function parse(src: string): Block[] {
           } else break
         }
       }
-      collect(false)
-      if (rows.length < 2) collect(true)
+      if (pipe) { rows.push(...pipe.rows); j = pipe.end }
+      else { collect(false); if (rows.length < 2) collect(true) }
       // liste numérotée / à puces copiée depuis Word (« 1. ⇥ texte ») : ce n'est pas un tableau
       const trimmed = rows.map(r => (r[0] === '' ? r.slice(1) : r))
       if (rows.length >= 2 && trimmed.every(r => r.length === 2 && LIST_MARK.test(r[0]))) {
@@ -498,11 +569,14 @@ export function parse(src: string): Block[] {
         const heads = norm.map((r, i) => (i > 0 && !merged.includes(i) && i + 1 < norm.length && r.every(c => c.trim() && !c.includes(CELL_BR)) && norm[i + 1].some(c => c.startsWith('• ')) ? i : -1)).filter(i => i >= 0)
         let caption: string | undefined
         const prev = out[out.length - 1]
-        if (prev?.t === 'p' && CAPTION.test(prev.text) && prev.text.length < 160) { caption = prev.text.match(CAPTION)![1]; out.pop() }
+        if (prev?.t === 'p' && capOf(prev.text, true) !== undefined && prev.text.length < 160) { caption = capOf(prev.text, true); out.pop() }
         else {
           let k = j
           while (k < lines.length && !lines[k].trim()) k++
-          if (k < lines.length && CAPTION.test(lines[k].trim()) && lines[k].length < 160 && !isRowLine(lines[k])) { caption = lines[k].trim().match(CAPTION)![1]; j = k + 1 }
+          // légende sous le tableau — sauf si un autre tableau suit aussitôt : c'est alors la légende de celui-là
+          let nx = k + 1
+          while (nx < lines.length && !lines[nx].trim()) nx++
+          if (k < lines.length && capOf(lines[k].trim(), false) !== undefined && lines[k].length < 160 && !isRowLine(lines[k]) && !tableAt(nx)) { caption = capOf(lines[k].trim(), false); j = k + 1 }
         }
         out.push({ t: 'table', rows: norm, caption, ...(merged.length ? { merged } : {}), ...(heads.length ? { heads } : {}) })
         i = j - 1
@@ -543,7 +617,20 @@ export function parse(src: string): Block[] {
 
     const prevShort = (() => { let k = i - 1; while (k >= 0 && !lines[k].trim()) k--; const t = k >= 0 ? lines[k].trim() : ''; return t.length > 0 && t.length < 40 && !/[.!?:;»)]$/.test(t) && !isRowLine(lines[k]) && headOf(t, ctx, isoAt(k), true, false) === null })()
     const h = headOf(line, ctx, isoAt(i), !explicit, longAfter(i) && !prevShort, hasBlank && (i === 0 || !lines[i - 1].trim()))
-    if (h) { flush(); out.push({ t: 'h', level: levelFor(h), text: h.text }); continue }
+    if (h) {
+      flush()
+      // « 2. FICHE DE STOCK… » suivi de « FICHE DE STOCK – … » : le 2e est le titre du formulaire, pas un nouveau chapitre
+      const last = out[out.length - 1]
+      if (h.kind === 'caps' && last?.t === 'h' && sameTitle(last.text, h.text)) { out.push({ t: 'title', text: h.text }); continue }
+      out.push({ t: 'h', level: levelFor(h), text: h.text }); continue
+    }
+
+    // ligne courte (sans phrase) juste au-dessus d'un tableau ou de lignes à remplir : c'est son titre, en gras, collé au tableau
+    const nx = nextIdx(i)
+    const attached = nx < lines.length && (tableAt(nx) || (/:$/.test(line) && HR.test(lines[nx].trim()) && !lines[nx].includes('\t')))
+    if (attached && words(line) <= 12 && !/[.!?;]$/.test(line) && !LI_START.test(line) && !/^tableau\b/i.test(line) && !isFormula(line)) {
+      flush(); out.push({ t: 'p', text: line.includes('*') ? line : `**${line}**`, keep: true, flush: true }); continue
+    }
 
     const ac = line.match(ACRONYM)
     const lb = labelOf(line) ?? (ac ? ([ac[0], ac[1], ac[2] ?? ''] as unknown as RegExpMatchArray) : null)
@@ -551,7 +638,7 @@ export function parse(src: string): Block[] {
     if (soft) {
       if (lb && para.length && /[.!?»:;)]$/.test(para[para.length - 1])) flush()
       para.push(text); if (line.endsWith(';')) flush() // « ; » en fin de ligne = élément d'une énumération
-    } else out.push({ t: 'p', text })
+    } else out.push({ t: 'p', text, ...(/:$/.test(line) ? { keep: true } : {}), ...(/_{4,}/.test(line) ? { flush: true } : {}) })
   }
   flush()
   return out.map(b => (b.t === 'p' || b.t === 'li' ? { ...b, text: tidy(b.text) } : b))

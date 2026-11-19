@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { columnWidths } from './plan'
+import { columnWidths, plan } from './plan'
+import { DEFAULTS } from './types'
 
 const W = 9072 // largeur utile A4 portrait, marges 2,5 cm
 const sum = (a: number[]) => a.reduce((x, y) => x + y, 0)
@@ -26,3 +27,11 @@ const many = Array.from({ length: 14 }, (_, i) => `Colonne${i}`)
 const wm = columnWidths([many, many.map(() => '1')], 9, W)
 assert.equal(sum(wm), W)
 console.log('largeurs de colonnes : OK')
+
+// un titre (et l'annonce) qui précède un grand tableau part avec lui sur la page paysage : jamais seul en bas de la page portrait
+{
+  const wide = { t: 'table' as const, rows: [['a', 'b', 'c', 'd', 'e', 'f'], ['1', '2', '3', '4', '5', '6']] }
+  const P = plan([{ t: 'p', text: 'Du texte.' }, { t: 'h', level: 1, text: '8. PLANNING' }, { t: 'p', text: '**Titre**', keep: true, flush: true }, wide], DEFAULTS)
+  assert.deepEqual(P.segs.map(g => `${g.landscape ? 'L' : 'P'}:${g.items.map(i => i.k).join(',')}`), ['P:p', 'L:h,p,table,gap', 'P:'].filter(x => x !== 'P:'))
+}
+console.log('plan : titre avec son grand tableau : OK')
